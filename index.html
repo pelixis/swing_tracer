@@ -1,0 +1,1346 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="골프 스윙 영상과 시뮬레이터 수치로 궤적·자세·구질을 진단하는 브라우저 앱">
+<title>스윙 트레이서</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: a launch-monitor bay — video stage with tracer on the left, coach's readout on the right; stacks on phones. */
+:root {
+  --bg: #EEF2EF;
+  --surface: #FFFFFF;
+  --surface-2: #F5F8F6;
+  --ink: #15201A;
+  --muted: #5A6860;
+  --line: #D6DED8;
+  --accent: #0F6A4B;
+  --accent-ink: #FFFFFF;
+  --flag: #C99314;
+  --good: #23824F;
+  --warn: #B87A06;
+  --bad: #C0392B;
+  --good-bg: #E3F2E9;
+  --warn-bg: #FBF0D9;
+  --bad-bg: #FBE4E0;
+  --stage: #0C1310;
+  --font-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1512; --surface: #16201B; --surface-2: #1B2721; --ink: #E4ECE7; --muted: #93A39A; --line: #2A3631;
+    --accent: #47BE87; --accent-ink: #08130E; --flag: #E6B53A; --good: #4CC08A; --warn: #E3A72F; --bad: #EF6A52;
+    --good-bg: #173326; --warn-bg: #362A11; --bad-bg: #3A1D18; --stage: #070B09; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1512; --surface: #16201B; --surface-2: #1B2721; --ink: #E4ECE7; --muted: #93A39A; --line: #2A3631;
+  --accent: #47BE87; --accent-ink: #08130E; --flag: #E6B53A; --good: #4CC08A; --warn: #E3A72F; --bad: #EF6A52;
+  --good-bg: #173326; --warn-bg: #362A11; --bad-bg: #3A1D18; --stage: #070B09; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 16px 40px; }
+header.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-block: 4px 16px; }
+.brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.brand h1 { font-family: var(--font-display); font-weight: 700; font-size: 34px; letter-spacing: 0.04em; margin: 0; line-height: 1; text-transform: uppercase; }
+.brand h1 span { color: var(--flag); }
+.brand p { margin: 0; color: var(--muted); font-size: 13px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { appearance: none; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 600 14px/1 var(--font-body); padding: 10px 14px; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--flag); outline-offset: 2px; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.btn.small { padding: 7px 10px; font-size: 13px; }
+.btn.on { background: var(--surface-2); border-color: var(--accent); color: var(--accent); }
+#file { position: absolute; width: 1px; height: 1px; opacity: 0; }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+.stage { background: var(--stage); border-radius: var(--r); overflow: hidden; position: relative; display: flex; justify-content: center; }
+#cv { display: block; max-width: 100%; max-height: 72vh; width: auto; height: auto; cursor: default; }
+#cv.picking { cursor: crosshair; }
+.overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: color-mix(in srgb, var(--stage) 78%, transparent); color: #E8EFEA; text-align: center; padding: 24px; }
+.overlay .bar { width: min(280px, 80%); height: 6px; border-radius: 3px; background: #ffffff22; overflow: hidden; }
+.overlay .bar i { display: block; height: 100%; width: 0; background: var(--flag); transition: width .15s; }
+.badge-demo { position: absolute; top: 10px; left: 10px; background: #000a; color: #F2D27A; font: 600 12px/1 var(--font-body); padding: 6px 9px; border-radius: 6px; letter-spacing: .02em; }
+.legend { position: absolute; bottom: 10px; left: 10px; display: flex; gap: 10px; flex-wrap: wrap; background: #000a; color: #E8EFEA; font-size: 11.5px; padding: 6px 9px; border-radius: 6px; }
+.legend b { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.controls .sep { flex: 1; }
+.timeline { position: relative; margin-top: 12px; padding-top: 18px; }
+.timeline input[type=range] { width: 100%; accent-color: var(--accent); }
+.marks { position: absolute; top: 0; left: 8px; right: 8px; height: 18px; }
+.marks button { position: absolute; transform: translateX(-50%); border: 0; background: transparent; color: var(--muted); font: 600 11px/1 var(--font-body); cursor: pointer; padding: 2px 3px; white-space: nowrap; }
+.marks button::after { content: ""; position: absolute; left: 50%; top: 15px; width: 1px; height: 10px; background: var(--flag); }
+.marks button:hover { color: var(--ink); }
+.timecode { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 16px; }
+.field label { display: block; font-size: 11.5px; font-weight: 600; color: var(--muted); letter-spacing: .04em; margin-bottom: 4px; }
+.field select { width: 100%; font: 500 14px var(--font-body); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; }
+.panel + .panel { margin-top: 14px; }
+.eyebrow { font-size: 11.5px; font-weight: 600; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; margin: 0 0 10px; }
+h2 { font-family: var(--font-display); font-weight: 700; font-size: 24px; letter-spacing: .02em; margin: 0 0 4px; text-wrap: balance; }
+
+.scorecard { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 18px; align-items: center; }
+.score { width: 104px; height: 104px; border-radius: 50%; display: grid; place-items: center; position: relative; }
+.score svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.score .num { font-family: var(--font-display); font-weight: 700; font-size: 40px; line-height: 1; text-align: center; font-variant-numeric: tabular-nums; }
+.score .num small { display: block; font: 600 11px var(--font-body); color: var(--muted); letter-spacing: .05em; margin-top: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip { font-size: 12px; font-weight: 600; padding: 4px 9px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); }
+.summary { margin: 0; color: var(--ink); }
+
+.keys { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.key { border: 0; padding: 0; background: transparent; cursor: pointer; text-align: left; color: var(--ink); font: inherit; }
+.key canvas { width: 100%; aspect-ratio: 3 / 4; background: var(--stage); border-radius: 6px; display: block; object-fit: contain; }
+.key span { display: block; font-size: 12px; font-weight: 600; margin-top: 4px; }
+.key em { font-style: normal; color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+
+.issue { border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 8px; padding: 14px; background: var(--surface); }
+.issue.bad { border-left-color: var(--bad); }
+.issue + .issue { margin-top: 10px; }
+.issue .head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.issue h3 { margin: 0; font-size: 16px; font-weight: 700; }
+.sev { font-size: 11.5px; font-weight: 700; padding: 3px 8px; border-radius: 999px; }
+.sev.bad { background: var(--bad-bg); color: var(--bad); }
+.sev.warn { background: var(--warn-bg); color: var(--warn); }
+.sev.good { background: var(--good-bg); color: var(--good); }
+.measure { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin: 4px 0 8px; font-variant-numeric: tabular-nums; }
+.issue dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; font-size: 14px; }
+.issue dt { font-weight: 700; color: var(--muted); font-size: 12.5px; padding-top: 1px; white-space: nowrap; }
+.issue dd { margin: 0; }
+.issue .jump { margin-top: 10px; }
+.goods { display: flex; flex-wrap: wrap; gap: 6px; }
+.goods .chip { background: var(--good-bg); color: var(--good); border-color: transparent; }
+
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11.5px; color: var(--muted); font-weight: 600; letter-spacing: .04em; }
+td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.dot.good { background: var(--good); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+
+.seg { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.seg button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 600 13px var(--font-body); padding: 7px 12px; border-radius: 999px; cursor: pointer; }
+.seg button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.pgrid, .lmgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.field input { width: 100%; font: 500 14px var(--font-body); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-variant-numeric: tabular-nums; }
+.lmbtn { display: flex; gap: 8px; align-items: end; }
+#bodyTips .tips { margin-top: 12px; }
+.lmres { margin-top: 16px; display: grid; gap: 12px; }
+.lmtop { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 14px; align-items: center; }
+.big { font-family: var(--font-display); font-weight: 700; font-size: 30px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.big small { font: 600 12px var(--font-body); color: var(--muted); display: block; letter-spacing: .03em; }
+.kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.flight svg { width: 120px; height: 150px; display: block; }
+.link { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+.tips { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; display: grid; gap: 4px; }
+.note { font-size: 12.5px; color: var(--muted); margin: 10px 0 0; }
+.err { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-top: 12px; }
+.empty { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+<style>html{color-scheme:light dark}body{margin:0}img{max-width:100%}</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Swing<span>·</span>Tracer</h1>
+      <p>스윙 영상 한 개로 궤적 트레이스와 자세 진단을 받아보세요</p>
+    </div>
+    <div class="actions">
+      <label class="btn primary" for="file">영상 불러오기</label>
+      <input id="file" type="file" accept="video/*">
+      <button class="btn" id="demoBtn" type="button">예시 스윙</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <section>
+      <div class="stage" id="stage">
+        <canvas id="cv" width="720" height="1280"></canvas>
+        <div class="badge-demo" id="demoBadge">예시 데이터 · 합성 스켈레톤</div>
+        <div class="legend">
+          <span><b style="background:#5AB4FF"></b>백스윙</span>
+          <span><b style="background:#FF8A3D"></b>다운스윙</span>
+          <span><b style="background:#E9E2C8"></b>팔로스루</span>
+        </div>
+        <div class="overlay" id="overlay" hidden>
+          <div id="ovText">포즈 모델을 불러오는 중</div>
+          <div class="bar"><i id="ovBar"></i></div>
+          <div id="ovSub" style="font-size:12px;opacity:.75"></div>
+        </div>
+      </div>
+      <video id="vid" playsinline muted preload="auto" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></video>
+
+      <div class="timeline">
+        <div class="marks" id="marks"></div>
+        <input id="scrub" type="range" min="0" max="1" step="0.001" value="0" aria-label="재생 위치">
+      </div>
+      <div class="controls">
+        <button class="btn small" id="playBtn" type="button">▶ 재생</button>
+        <button class="btn small" id="prevBtn" type="button" aria-label="이전 프레임">◀︎ 1프레임</button>
+        <button class="btn small" id="nextBtn" type="button" aria-label="다음 프레임">1프레임 ▶︎</button>
+        <select id="rate" class="btn small" aria-label="재생 속도">
+          <option value="0.25">0.25×</option>
+          <option value="0.5" selected>0.5×</option>
+          <option value="1">1×</option>
+        </select>
+        <span class="sep"></span>
+        <span class="timecode" id="tc">0.00s</span>
+      </div>
+      <div class="controls">
+        <button class="btn small on" id="tTrace" type="button" aria-pressed="true">손 궤적</button>
+        <button class="btn small on" id="tSkel" type="button" aria-pressed="true">스켈레톤</button>
+        <button class="btn small on" id="tGuide" type="button" aria-pressed="true">기준선</button>
+        <button class="btn small" id="ballBtn" type="button" hidden>공 위치 찍기 (스윙 플레인)</button>
+      </div>
+
+      <div class="settings">
+        <div class="field">
+          <label for="clubSel">클럽</label>
+          <select id="clubSel">
+            <option value="driver">드라이버</option>
+            <option value="wood">우드·하이브리드</option>
+            <option value="long">롱 아이언 (3–5)</option>
+            <option value="mid" selected>미들 아이언 (6–7)</option>
+            <option value="short">숏 아이언 (8–9)</option>
+            <option value="wedge">웨지 (PW–SW)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="viewSel">촬영 각도</label>
+          <select id="viewSel">
+            <option value="auto">자동 인식</option>
+            <option value="face">정면 (Face-on)</option>
+            <option value="dtl">후방 (Down-the-line)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="handSel">타석</label>
+          <select id="handSel">
+            <option value="auto">자동 인식</option>
+            <option value="R">오른손 골퍼</option>
+            <option value="L">왼손 골퍼</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="fpsSel">분석 프레임</label>
+          <select id="fpsSel">
+            <option value="30" selected>30fps (빠름)</option>
+            <option value="60">60fps (정밀)</option>
+          </select>
+        </div>
+      </div>
+      <div id="errBox" class="err" hidden></div>
+
+      <div class="panel" style="margin-top:16px" id="profilePanel">
+        <p class="eyebrow">골퍼 프로필</p>
+        <div class="seg" id="profTabs" role="tablist" aria-label="골퍼 선택"></div>
+        <div class="pgrid">
+          <div class="field"><label for="pName">이름</label><input id="pName" type="text" maxlength="12"></div>
+          <div class="field"><label for="pHeight">키 (cm)</label><input id="pHeight" type="number" inputmode="numeric" min="120" max="220"></div>
+          <div class="field"><label for="pSex">성별</label><select id="pSex"><option value="M">남성</option><option value="F">여성</option></select></div>
+          <div class="field"><label for="pSpeed">드라이버 클럽스피드 (mph, 선택)</label><input id="pSpeed" type="number" inputmode="decimal" min="40" max="140" placeholder="예: 95"></div>
+        </div>
+        <div id="bodyTips"></div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <p class="eyebrow">촬영 가이드</p>
+        <ul class="tips">
+          <li>삼각대나 고정된 위치에서 촬영하고, 머리부터 발끝·클럽 끝까지 화면에 다 들어오게 하세요.</li>
+          <li><b>정면</b>: 골퍼 정면, 손 높이(허리 높이)에서. 스웨이·체중이동·머리 위치를 봅니다.</li>
+          <li><b>후방</b>: 발끝 라인 뒤, 손 높이에서 타깃 방향으로. 척추각·얼리 익스텐션·궤도를 봅니다.</li>
+          <li>분석 전에 <b>클럽</b>을 선택하세요. 스탠스 폭·볼 위치·척추 기울기·임팩트 머리 위치 기준이 클럽마다 달라집니다.</li>
+          <li>스윙 한 번만 담긴 3–10초 영상이 가장 정확합니다. 슬로모션 영상도 템포 비율은 그대로 측정돼요.</li>
+        </ul>
+        <p class="note">영상은 이 브라우저 안에서만 분석되고 어디에도 업로드되지 않습니다.</p>
+      </div>
+    </section>
+
+    <section>
+      <div id="report"></div>
+      <div class="panel" id="lmPanel" style="margin-top:14px">
+        <p class="eyebrow">시뮬레이터 수치 분석</p>
+        <h2>런치 모니터 숫자로 진단하기</h2>
+        <p class="summary" style="color:var(--muted);font-size:14px">골프존·트랙맨 등 화면에 나온 숫자를 넣으세요. 클럽과 골퍼는 위에서 선택한 값을 따릅니다. 볼 스피드만 필수예요.</p>
+        <form id="lmForm" class="lmgrid" novalidate>
+          <div class="field"><label for="lmUnit">스피드 단위</label><select id="lmUnit"><option value="mph">mph</option><option value="ms">m/s</option><option value="kmh">km/h</option></select></div>
+          <div class="field"><label for="lmCs">클럽(스윙) 스피드</label><input id="lmCs" type="number" inputmode="decimal" step="0.1"></div>
+          <div class="field"><label for="lmBs">볼 스피드 *</label><input id="lmBs" type="number" inputmode="decimal" step="0.1" required></div>
+          <div class="field"><label for="lmLaunch">발사각 (°)</label><input id="lmLaunch" type="number" inputmode="decimal" step="0.1"></div>
+          <div class="field"><label for="lmSpin">백스핀 (rpm)</label><input id="lmSpin" type="number" inputmode="numeric" step="10"></div>
+          <div class="field"><label for="lmDir">방향각 (°, 오른쪽 +)</label><input id="lmDir" type="number" inputmode="decimal" step="0.1"></div>
+          <div class="field"><label for="lmSide">사이드스핀 (rpm, 오른쪽으로 휘면 +)</label><input id="lmSide" type="number" inputmode="numeric" step="10"></div>
+          <div class="field lmbtn"><button class="btn primary" type="submit">수치 분석</button><button class="btn" type="button" id="lmSample">예시 값</button></div>
+        </form>
+        <div id="lmOut"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+// ===== Swing analysis engine (pure functions, no DOM) =====
+const SW = (() => {
+  const IDX = [0, 7, 8, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
+  const BONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
+
+  // Club-specific target ranges: [good, warn]
+  const CLUBS = {
+    driver: { name: '드라이버', stance: [[1.15, 1.7], [1.0, 1.9]], tilt: [[8, 20], [4, 25]], shift: [[0.02, 0.35], [-0.04, 0.45]], headImp: [[-0.3, 0.03], [-0.4, 0.1]], spine: [[28, 42], [20, 50]], reach: [[0.08, 0.33], [0, 0.42]], planeTop: [[-0.45, 0.15], [-0.6, 0.3]], ball: [[0.3, 0.55], [0.2, 0.65]], ballTxt: '앞발 뒤꿈치 안쪽' },
+    wood:   { name: '우드·하이브리드', stance: [[1.05, 1.6], [0.9, 1.8]], tilt: [[6, 17], [3, 22]], shift: [[0.04, 0.38], [-0.02, 0.45]], headImp: [[-0.28, 0.06], [-0.38, 0.12]], spine: [[30, 44], [22, 52]], reach: [[0.05, 0.3], [-0.03, 0.4]], planeTop: [[-0.42, 0.18], [-0.55, 0.32]], ball: [[0.15, 0.4], [0.05, 0.5]], ballTxt: '앞발 뒤꿈치에서 공 1–2개 안쪽' },
+    long:   { name: '롱 아이언 (3–5)', stance: [[1.0, 1.5], [0.85, 1.7]], tilt: [[4, 15], [1, 20]], shift: [[0.06, 0.4], [0, 0.5]], headImp: [[-0.25, 0.08], [-0.35, 0.15]], spine: [[32, 46], [24, 53]], reach: [[0.03, 0.27], [-0.05, 0.36]], planeTop: [[-0.38, 0.2], [-0.5, 0.35]], ball: [[0.08, 0.3], [0, 0.4]], ballTxt: '스탠스 중앙에서 공 1–2개 앞' },
+    mid:    { name: '미들 아이언 (6–7)', stance: [[0.95, 1.45], [0.8, 1.7]], tilt: [[3, 14], [0, 20]], shift: [[0.06, 0.4], [0, 0.5]], headImp: [[-0.25, 0.08], [-0.35, 0.15]], spine: [[33, 47], [25, 54]], reach: [[0, 0.25], [-0.08, 0.35]], planeTop: [[-0.35, 0.2], [-0.5, 0.35]], ball: [[0, 0.2], [-0.08, 0.3]], ballTxt: '스탠스 중앙 또는 공 1개 앞' },
+    short:  { name: '숏 아이언 (8–9)', stance: [[0.85, 1.35], [0.7, 1.6]], tilt: [[2, 12], [-1, 18]], shift: [[0.08, 0.4], [0.02, 0.5]], headImp: [[-0.2, 0.12], [-0.3, 0.18]], spine: [[35, 49], [27, 56]], reach: [[-0.02, 0.22], [-0.1, 0.32]], planeTop: [[-0.32, 0.22], [-0.47, 0.37]], ball: [[-0.08, 0.12], [-0.15, 0.2]], ballTxt: '스탠스 중앙' },
+    wedge:  { name: '웨지', stance: [[0.7, 1.25], [0.55, 1.5]], tilt: [[1, 10], [-2, 16]], shift: [[0.08, 0.4], [0.02, 0.5]], headImp: [[-0.2, 0.12], [-0.3, 0.18]], spine: [[36, 50], [28, 57]], reach: [[-0.02, 0.22], [-0.1, 0.32]], planeTop: [[-0.3, 0.25], [-0.45, 0.4]], ball: [[-0.12, 0.08], [-0.2, 0.15]], ballTxt: '스탠스 중앙 (또는 약간 뒤)' }
+  };
+  const pctR = r => `${Math.round(r[0] * 100)}–${Math.round(r[1] * 100)}%T`;
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const deg = r => r * 180 / Math.PI;
+  const median = arr => { const s = [...arr].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+  const angleAt = (a, b, c) => { // interior angle at b
+    const v1 = { x: a.x - b.x, y: a.y - b.y }, v2 = { x: c.x - b.x, y: c.y - b.y };
+    const d = (v1.x * v2.x + v1.y * v2.y) / (Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y) || 1);
+    return deg(Math.acos(Math.max(-1, Math.min(1, d))));
+  };
+
+  // raw: array of (array of 33 {x,y,visibility} normalized) or null. Returns pixel-space cleaned frames.
+  function clean(raw, W, H) {
+    const n = raw.length;
+    const out = Array.from({ length: n }, () => []);
+    for (const i of IDX) {
+      const xs = new Array(n), ys = new Array(n), vs = new Array(n);
+      const valid = [];
+      for (let f = 0; f < n; f++) {
+        const lm = raw[f] && raw[f][i];
+        if (lm) { xs[f] = lm.x * W; ys[f] = lm.y * H; vs[f] = lm.visibility ?? 1; valid.push(f); }
+      }
+      if (!valid.length) return null;
+      // interpolate gaps
+      for (let f = 0; f < n; f++) {
+        if (xs[f] !== undefined) continue;
+        let a = -1, b = -1;
+        for (let k = f - 1; k >= 0; k--) if (raw[k] && raw[k][i]) { a = k; break; }
+        for (let k = f + 1; k < n; k++) if (raw[k] && raw[k][i]) { b = k; break; }
+        if (a < 0) { xs[f] = xs[b]; ys[f] = ys[b]; vs[f] = 0; }
+        else if (b < 0) { xs[f] = xs[a]; ys[f] = ys[a]; vs[f] = 0; }
+        else { const t = (f - a) / (b - a); xs[f] = xs[a] + (xs[b] - xs[a]) * t; ys[f] = ys[a] + (ys[b] - ys[a]) * t; vs[f] = 0; }
+      }
+      // 1-2-1 smoothing
+      for (let f = 0; f < n; f++) {
+        if (f === 0 || f === n - 1) { out[f][i] = { x: xs[f], y: ys[f], v: vs[f] }; continue; }
+        out[f][i] = {
+          x: (xs[f - 1] + 2 * xs[f] + xs[f + 1]) / 4,
+          y: (ys[f - 1] + 2 * ys[f] + ys[f + 1]) / 4,
+          v: vs[f]
+        };
+      }
+    }
+    return out;
+  }
+
+  const hands = p => mid(p[15], p[16]);
+  const head = p => ({ x: (p[0].x * 2 + p[7].x + p[8].x) / 4, y: (p[0].y * 2 + p[7].y + p[8].y) / 4 });
+  const hipC = p => mid(p[23], p[24]);
+  const shC = p => mid(p[11], p[12]);
+
+  function detectPhases(P, fps, T) {
+    const n = P.length;
+    if (n < 10) return null;
+    const Hn = P.map(hands);
+    const sp = [0];
+    for (let f = 1; f < n; f++) sp[f] = dist(Hn[f], Hn[f - 1]) / T * fps;
+    let peak = 1;
+    for (let f = 1; f < n; f++) if (sp[f] > sp[peak]) peak = f;
+    let top = 0;
+    for (let f = 0; f <= peak; f++) if (Hn[f].y < Hn[top].y) top = f;
+    if (top < 3) return null;
+    const thr = 0.6;
+    let address = 0;
+    for (let f = top - 1; f >= 2; f--) {
+      if (sp[f] < thr && sp[f - 1] < thr && sp[f - 2] < thr) { address = f; break; }
+    }
+    // hands must actually rise meaningfully from address to top
+    if (Hn[address].y - Hn[top].y < 0.5 * T) return null;
+    let takeaway = address + 1;
+    for (let f = address + 1; f <= top; f++) if (dist(Hn[f], Hn[address]) > 0.08 * T) { takeaway = f; break; }
+    const addrY = Hn[address].y;
+    let impact = -1;
+    for (let f = top + 1; f < n; f++) if (Hn[f].y >= addrY - 0.08 * T) { impact = f; break; }
+    if (impact < 0) return null;
+    const start = impact;
+    while (impact + 1 < n && Hn[impact + 1].y > Hn[impact].y && impact - start < 3) impact++;
+    let finish = impact;
+    for (let f = impact + 1; f < n; f++) if (Hn[f].y < Hn[finish].y) finish = f;
+    if (finish === impact) finish = Math.min(n - 1, impact + 1);
+    return { address, takeaway, top, impact, finish };
+  }
+
+  function grade(v, good, warn) {
+    if (v >= good[0] && v <= good[1]) return 'good';
+    if (v >= warn[0] && v <= warn[1]) return 'warn';
+    return 'bad';
+  }
+
+  function xAtHeight(path, h) {
+    for (let k = 0; k < path.length - 1; k++) {
+      const a = path[k], b = path[k + 1];
+      if ((a.y - h) * (b.y - h) <= 0 && a.y !== b.y) return a.x + (b.x - a.x) * (h - a.y) / (b.y - a.y);
+    }
+    return null;
+  }
+
+  // opts: { view: 'auto'|'face'|'dtl', hand: 'auto'|'R'|'L', ball: {x,y}|null }
+  function analyze(P, fps, opts = {}) {
+    const n = P.length;
+    // reference length: torso (shoulder center to hip center), median of first frames
+    const T = median(P.slice(0, Math.max(3, Math.floor(n / 4))).map(p => dist(shC(p), hipC(p))));
+    const ph = detectPhases(P, fps, T);
+    if (!ph) return { ok: false, reason: '스윙 구간(어드레스 → 탑 → 임팩트)을 찾지 못했어요. 스윙 한 번이 처음부터 끝까지 담긴 영상인지, 몸 전체가 화면에 보이는지 확인해 주세요.' };
+    const A = P[ph.address], Tp = P[ph.top], I = P[ph.impact], F = P[ph.finish];
+
+    const swRatio = Math.abs(A[11].x - A[12].x) / T;
+    const view = opts.view && opts.view !== 'auto' ? opts.view : (swRatio > 0.5 ? 'face' : 'dtl');
+
+    let hand, t = 1, b = 1;
+    if (view === 'face') {
+      const dx = hands(Tp).x - hands(A).x;
+      hand = opts.hand && opts.hand !== 'auto' ? opts.hand : (dx < 0 ? 'R' : 'L');
+      t = hand === 'R' ? 1 : -1; // target direction on image x
+    } else {
+      b = Math.sign(head(A).x - hipC(A).x) || 1; // golfer -> ball direction on image x
+      hand = opts.hand && opts.hand !== 'auto' ? opts.hand : (b > 0 ? 'R' : 'L');
+    }
+    const L = hand === 'R' ? { sh: 11, el: 13, wr: 15, hip: 23, kn: 25, an: 27 } : { sh: 12, el: 14, wr: 16, hip: 24, kn: 26, an: 28 };
+    const Tr = hand === 'R' ? { sh: 12, el: 14, wr: 16, hip: 24, kn: 26, an: 28 } : { sh: 11, el: 13, wr: 15, hip: 23, kn: 25, an: 27 };
+
+    // club ranges, then small body-type adjustments (tall golfers sit a bit more upright on plane, shorter golfers a bit flatter)
+    const C = JSON.parse(JSON.stringify(CLUBS[opts.club] || CLUBS.mid));
+    C.knee = [[15, 35], [8, 45]];
+    const ht = +(opts.body && opts.body.height) || 0;
+    const sh = (rr, d) => rr.map(r => [r[0] + d, r[1] + d]);
+    if (ht >= 185) { C.spine = sh(C.spine, 2); C.knee = [[15, 30], [8, 40]]; C.planeTop = C.planeTop.map(r => [r[0], r[1] + 0.07]); }
+    else if (ht && ht < 165) { C.spine = sh(C.spine, -2); C.planeTop = C.planeTop.map(r => [r[0] - 0.07, r[1]]); }
+    const M = [];
+    const add = (id, label, value, display, ideal, status, dir) => M.push({ id, label, value, display, ideal, status, dir });
+
+    // tempo (both views)
+    const back = (ph.top - ph.takeaway) / fps, down = (ph.impact - ph.top) / fps;
+    const ratio = back / Math.max(down, 1 / fps);
+    add('tempo', '템포 (백스윙:다운스윙)', ratio, ratio.toFixed(1) + ' : 1', '약 3 : 1', grade(ratio, [2.5, 3.6], [2.0, 4.5]), ratio < 2.5 ? 'fast' : 'slow');
+
+    if (view === 'face') {
+      const shW = Math.abs(A[11].x - A[12].x);
+      const stance = Math.abs(A[27].x - A[28].x) / shW;
+      add('stance', '스탠스 폭 (발목 간격 ÷ 어깨너비)', stance, stance.toFixed(2) + '배', `${C.stance[0][0]}–${C.stance[0][1]}배`, grade(stance, ...C.stance), stance < C.stance[0][0] ? 'narrow' : 'wide');
+
+      const tilt = deg(Math.atan2(A[Tr.sh].y - A[L.sh].y, Math.abs(A[Tr.sh].x - A[L.sh].x)));
+      add('tilt', '어드레스 어깨 기울기', tilt, tilt.toFixed(0) + '°', `뒷어깨가 ${C.tilt[0][0]}–${C.tilt[0][1]}° 낮게`, grade(tilt, ...C.tilt), tilt < C.tilt[0][0] ? 'low' : 'high');
+
+      const headSway = (head(Tp).x - head(A).x) * -t / T;
+      add('headSway', '백스윙 머리 측면 이동', headSway, (headSway * 100).toFixed(0) + '%T', '±12%T 이내', grade(headSway, [-0.08, 0.12], [-0.14, 0.2]), headSway < 0 ? 'reverse' : 'sway');
+
+      const hipSway = (hipC(Tp).x - hipC(A).x) * -t / T;
+      add('hipSway', '백스윙 골반 측면 이동', hipSway, (hipSway * 100).toFixed(0) + '%T', '10%T 이내', grade(hipSway, [-0.08, 0.1], [-0.15, 0.18]), hipSway < 0 ? 'reverse' : 'sway');
+
+      const shift = (hipC(I).x - hipC(A).x) * t / T;
+      add('shift', '임팩트 체중 이동 (골반)', shift, (shift * 100).toFixed(0) + '%T', `타깃 방향 +${Math.round(C.shift[0][0] * 100)}%T 이상`, grade(shift, ...C.shift), shift < C.shift[0][0] ? 'back' : 'over');
+
+      const headImp = (head(I).x - head(A).x) * t / T;
+      add('headImp', '임팩트 머리 위치', headImp, (headImp * 100).toFixed(0) + '%T', `타깃 쪽 이동 ${Math.round(C.headImp[0][1] * 100)}%T 이내`, grade(headImp, ...C.headImp), headImp > 0 ? 'lunge' : 'back');
+
+      const arm = angleAt(Tp[L.sh], Tp[L.el], Tp[L.wr]);
+      add('leadArm', '탑에서 앞팔 펴짐', arm, arm.toFixed(0) + '°', '155° 이상', grade(arm, [155, 181], [135, 181]), 'bent');
+
+      if (opts.ball) {
+        // ball position: 0 = stance center, +0.5 = lead ankle, -0.5 = trail ankle
+        const cx = (A[27].x + A[28].x) / 2, sw = Math.abs(A[27].x - A[28].x) || 1;
+        const bp = (opts.ball.x - cx) * t / sw;
+        const bpTxt = Math.abs(bp) < 0.04 ? '스탠스 중앙' : (bp > 0 ? '중앙에서 앞발 쪽 ' : '중앙에서 뒷발 쪽 ') + Math.abs(bp * 100).toFixed(0) + '%';
+        add('ballPos', '볼 위치 (스탠스 기준)', bp, bpTxt, C.ballTxt, grade(bp, ...C.ball), bp > C.ball[0][1] ? 'fwd' : 'back');
+      }
+      const fin = (hipC(F).x - F[L.an].x) * t / T;
+      add('finish', '피니시 체중 (골반 vs 앞발)', fin, (fin * 100).toFixed(0) + '%T', '앞발 위 (−10%T 이상)', grade(fin, [-0.1, 0.4], [-0.25, 0.5]), 'back');
+    } else {
+      const spine = P2 => { const v = { x: shC(P2).x - hipC(P2).x, y: shC(P2).y - hipC(P2).y }; return deg(Math.atan2(Math.abs(v.x), -v.y)); };
+      const sA = spine(A), sI = spine(I);
+      add('spine', '어드레스 척추 각도 (수직 기준)', sA, sA.toFixed(0) + '°', `${C.spine[0][0]}–${C.spine[0][1]}°`, grade(sA, ...C.spine), sA < C.spine[0][0] ? 'upright' : 'bent');
+
+      const side = (A[L.kn].v + A[L.an].v) >= (A[Tr.kn].v + A[Tr.an].v) ? L : Tr;
+      const flex = 180 - angleAt(A[side.hip], A[side.kn], A[side.an]);
+      add('knee', '어드레스 무릎 굽힘', flex, flex.toFixed(0) + '°', `${C.knee[0][0]}–${C.knee[0][1]}°`, grade(flex, ...C.knee), flex < C.knee[0][0] ? 'straight' : 'squat');
+
+      const reach = (hands(A).x - shC(A).x) * b / T;
+      add('reach', '어드레스 손 위치 (어깨 수직선 기준)', reach, (reach * 100).toFixed(0) + '%T', pctR(C.reach[0]), grade(reach, ...C.reach), reach > C.reach[0][1] ? 'far' : 'close');
+
+      const ee = (hipC(I).x - hipC(A).x) * b / T;
+      add('ee', '임팩트 골반 전진 (얼리 익스텐션)', ee, (ee * 100).toFixed(0) + '%T', '공 쪽 +5%T 이내', grade(ee, [-0.3, 0.05], [-0.4, 0.12]), 'forward');
+
+      const loss = sA - sI;
+      add('spineLoss', '임팩트 척추 각 유지', loss, (loss >= 0 ? '−' : '+') + Math.abs(loss).toFixed(0) + '°', '변화 6° 이내', grade(loss, [-8, 6], [-14, 12]), loss > 0 ? 'rise' : 'dive');
+
+      const hh = (head(I).y - head(A).y) / T;
+      add('headH', '임팩트 머리 높이 변화', hh, (hh > 0 ? '↓' : '↑') + Math.abs(hh * 100).toFixed(0) + '%T', '±7%T 이내', grade(Math.abs(hh), [0, 0.07], [0, 0.13]), hh > 0 ? 'dip' : 'rise');
+
+      const bp = P.slice(ph.takeaway - 1, ph.top + 1).map(hands);
+      const dp = P.slice(ph.top, ph.impact + 1).map(hands);
+      const aY = hands(A).y, tY = hands(Tp).y;
+      const diffs = [];
+      for (const fr of [0.25, 0.4, 0.55]) {
+        const h = aY + (tY - aY) * fr;
+        const xb = xAtHeight(bp, h), xd = xAtHeight(dp, h);
+        if (xb != null && xd != null) diffs.push((xd - xb) * b / T);
+      }
+      if (diffs.length) {
+        const d = diffs.reduce((s, x) => s + x, 0) / diffs.length;
+        add('path', '다운스윙 손 궤도 (백스윙 대비)', d, (d > 0 ? '바깥 ' : '안쪽 ') + Math.abs(d * 100).toFixed(0) + '%T', '같은 선 또는 살짝 안쪽', grade(d, [-0.25, 0.04], [-0.35, 0.1]), d > 0.04 ? 'ott' : 'inside');
+      }
+
+      if (opts.ball) {
+        // shoulder plane: ball -> shoulder center at address. Positive = above the line (away from ground side)
+        const bl = opts.ball, s = shC(A);
+        const side2 = p => { const cr = (s.x - bl.x) * (p.y - bl.y) - (s.y - bl.y) * (p.x - bl.x); return cr; };
+        const ref = side2({ x: bl.x, y: bl.y - 1000 }); // a point straight up
+        const len = dist(s, bl);
+        const signedAbove = p => Math.sign(side2(p)) === Math.sign(ref) ? Math.abs(side2(p)) / len : -Math.abs(side2(p)) / len;
+        const topAbove = signedAbove(hands(Tp)) / T;
+        add('planeTop', '탑 손 위치 (숄더 플레인 기준)', topAbove, (topAbove > 0 ? '위 ' : '아래 ') + Math.abs(topAbove * 100).toFixed(0) + '%T', `플레인 아래 ${Math.round(-C.planeTop[0][0] * 100)}%T ~ 위 ${Math.round(C.planeTop[0][1] * 100)}%T`, grade(topAbove, ...C.planeTop), topAbove > 0 ? 'steep' : 'flat');
+        let maxAbove = -1;
+        for (let f = ph.top + 1; f <= ph.impact; f++) {
+          const hp = hands(P[f]);
+          if (hp.y > hands(Tp).y + 0.2 * T && hp.y < aY - 0.2 * T) maxAbove = Math.max(maxAbove, signedAbove(hp) / T);
+        }
+        if (maxAbove > -1) add('planeDown', '다운스윙 숄더 플레인 이탈', maxAbove, maxAbove > 0 ? '위로 ' + (maxAbove * 100).toFixed(0) + '%T' : '플레인 아래 유지', '플레인 아래로 진입', grade(maxAbove, [-2, 0.02], [-2, 0.1]), 'ott');
+      }
+    }
+
+    let score = 100;
+    for (const m of M) score -= m.status === 'bad' ? 14 : m.status === 'warn' ? 6 : 0;
+    score = Math.max(30, Math.round(score));
+    return { ok: true, club: opts.club || 'mid', clubName: C.name, view, hand, t, b, T, phases: ph, metrics: M, score, tempo: { back, down, ratio } };
+  }
+
+  return { CLUBS, IDX, BONES, clean, analyze, detectPhases, hands, head, hipC, shC, mid, dist };
+})();
+if (typeof module !== 'undefined') module.exports = SW;
+
+// ===== Synthetic demo swing (face-on, right-handed, with a few realistic faults) =====
+function makeDemoSwing() {
+  const W = 720, H = 1280, fps = 30, dur = 3.2;
+  const ease = x => x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x);
+  const frames = [];
+  const tA = 0.7, tTop = 1.6, tImp = 2.0, tFin = 2.55; // backswing 0.9s, downswing 0.4s
+  for (let f = 0; f <= dur * fps; f++) {
+    const s = f / fps;
+    let th, prog; // th: arm angle (rad), + = backswing
+    if (s < tA) { th = 0; prog = 0; }
+    else if (s < tTop) { prog = ease((s - tA) / (tTop - tA)); th = 2.7 * prog; }
+    else if (s < tImp) { const u = (s - tTop) / (tImp - tTop); th = 2.7 * (1 - u * u); prog = 1 + u; }
+    else if (s < tFin) { const u = ease((s - tImp) / (tFin - tImp)); th = -2.8 * u; prog = 2 + u; }
+    else { th = -2.8; prog = 3; }
+    // body shifts (px, + = toward target = image right)
+    const back = Math.min(prog, 1), downU = Math.max(0, Math.min(prog - 1, 1)), fol = Math.max(0, prog - 2);
+    const hipX = 360 - 42 * back + 52 * downU + 40 * fol;  // sways back, then slides
+    const headX = 360 - 30 * back + 68 * downU - 5 * fol;  // lunges toward target at impact
+    const rot = Math.cos(Math.min(1, Math.abs(th) / 1.6) * 1.15); // shoulder turn foreshortening
+    const shW = 150 * Math.max(0.4, rot);
+    const shY = 470, hipY = 720;
+    const shCx = (hipX + headX) / 2 + 4;
+    const rSh = { x: shCx - shW / 2, y: shY + 12 * (1 - Math.min(1, Math.abs(th))) }; // golfer's right shoulder (image left)
+    const lSh = { x: shCx + shW / 2, y: shY };
+    const R = 300;
+    const hx = shCx - R * Math.sin(th) * 0.95, hy = shY + R * Math.cos(th) * 0.92;
+    const hands = { x: hx, y: hy };
+    const midp = (a, b, k = 0.5) => ({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k });
+    const lEl = midp(lSh, hands, 0.5); lEl.x += 8;
+    const rEl = midp(rSh, hands, 0.5); const bend = Math.max(0, Math.sin(Math.abs(th))) * 45; rEl.y += bend * 0.4; rEl.x += th > 0 ? bend : -bend * 0.6;
+    const lWr = { x: hands.x + 6, y: hands.y }, rWr = { x: hands.x - 6, y: hands.y + 10 };
+    const lHip = { x: hipX + 62, y: hipY }, rHip = { x: hipX - 62, y: hipY };
+    const lAn = { x: 450, y: 1140 }, rAn = { x: 270, y: 1140 };
+    const lKn = { x: (lHip.x + lAn.x) / 2 + 10 + 18 * fol, y: 935 }, rKn = { x: (rHip.x + rAn.x) / 2 - 8 + 40 * fol, y: 935 - 20 * fol };
+    const nose = { x: headX, y: 360 }, lEar = { x: headX + 34 * rot, y: 345 }, rEar = { x: headX - 34 * rot, y: 345 };
+    const lm = new Array(33).fill(null).map(() => ({ x: 0.5, y: 0.5, visibility: 0.2 }));
+    const put = (i, p) => { lm[i] = { x: p.x / W, y: p.y / H, visibility: 0.98 }; };
+    put(0, nose); put(7, lEar); put(8, rEar);
+    put(11, lSh); put(12, rSh); put(13, lEl); put(14, rEl); put(15, lWr); put(16, rWr);
+    put(23, lHip); put(24, rHip); put(25, lKn); put(26, rKn); put(27, lAn); put(28, rAn);
+    frames.push(lm);
+  }
+  return { W, H, fps, raw: frames, duration: dur };
+}
+if (typeof module !== 'undefined') module.exports = makeDemoSwing;
+
+// ===== Launch monitor / simulator numbers analysis (pure functions) =====
+const LM = (() => {
+  const toMph = (v, unit) => unit === 'ms' ? v * 2.23694 : unit === 'kmh' ? v * 0.621371 : v;
+  const fromMph = (v, unit) => unit === 'ms' ? v / 2.23694 : unit === 'kmh' ? v / 0.621371 : v;
+  const unitName = u => u === 'ms' ? 'm/s' : u === 'kmh' ? 'km/h' : 'mph';
+
+  // TrackMan classic tour averages (club speed mph, ball speed mph, launch °, spin rpm, carry yd)
+  const TOUR = {
+    M: { driver: [113, 167, 10.9, 2686, 275], wood: [107, 158, 9.2, 3655, 243], long: [94, 132, 12.1, 5361, 194], mid: [90, 120, 16.3, 7097, 172], short: [85, 109, 20.4, 8647, 148], wedge: [83, 102, 24.2, 9304, 136] },
+    F: { driver: [94, 140, 13.2, 2611, 218], wood: [90, 132, 11.2, 2704, 195], long: [79, 112, 14.8, 5081, 161], mid: [76, 104, 19.0, 6699, 141], short: [72, 93, 23.9, 7589, 119], wedge: [70, 86, 25.6, 8403, 107] }
+  };
+  const TOUR_REF = { driver: '드라이버', wood: '3번 우드', long: '5번 아이언', mid: '7번 아이언', short: '9번 아이언', wedge: 'PW' };
+
+  const SMASH = { driver: [1.44, 1.5, 1.38], wood: [1.4, 1.48, 1.34], long: [1.36, 1.45, 1.3], mid: [1.31, 1.38, 1.26], short: [1.25, 1.33, 1.2], wedge: [1.15, 1.27, 1.1] };
+  const CARRY_PER_MPH = { driver: 1.65, wood: 1.54, long: 1.47, mid: 1.43, short: 1.36, wedge: 1.33 };
+  const FACE_SHARE = { driver: 0.85, wood: 0.8, long: 0.75, mid: 0.75, short: 0.72, wedge: 0.7 };
+  const AXIS_PER_FTP = { driver: 2.2, wood: 2.0, long: 1.7, mid: 1.6, short: 1.4, wedge: 1.3 };
+
+  function optimal(club, cs) { // cs: club speed mph
+    if (club === 'driver') {
+      if (cs < 80) return { launch: [15, 18], spin: [2600, 3200] };
+      if (cs < 90) return { launch: [14, 17], spin: [2400, 3000] };
+      if (cs < 100) return { launch: [13, 16], spin: [2200, 2700] };
+      if (cs < 110) return { launch: [12, 15], spin: [2000, 2500] };
+      return { launch: [11, 14], spin: [1900, 2400] };
+    }
+    const slow = cs && cs < 80 ? 1 : 0; // slower swingers need a bit more launch
+    const T = {
+      wood: { launch: [11, 14], spin: [3000, 4300] },
+      long: { launch: [12, 16], spin: [4500, 5800] },
+      mid: { launch: [16, 20], spin: [6000, 7500] },
+      short: { launch: [20, 24], spin: [7400, 9000] },
+      wedge: { launch: [24, 28], spin: [8000, 10000] }
+    }[club];
+    return { launch: [T.launch[0] + slow, T.launch[1] + slow * 2], spin: T.spin };
+  }
+
+  const rng = (v, r) => v < r[0] ? 'low' : v > r[1] ? 'high' : 'ok';
+
+  // inp: { club, unit, cs, bs, launch, spin, dir, side, axis, hand, sex }
+  // dir: launch direction ° (+ = right of target), side: side spin rpm (+ = curves right), axis: spin axis ° (+ = right)
+  function analyze(inp) {
+    const club = inp.club || 'mid', u = inp.unit || 'mph';
+    const cs = inp.cs ? toMph(inp.cs, u) : null, bs = inp.bs ? toMph(inp.bs, u) : null;
+    const out = { club, items: [], flight: null, notes: [] };
+    if (!bs) return { ...out, error: '볼 스피드는 꼭 입력해 주세요.' };
+    const mirror = inp.hand === 'L' ? -1 : 1;
+    const add = (id, label, valueTxt, idealTxt, status, msg) => out.items.push({ id, label, valueTxt, idealTxt, status, msg });
+
+    // smash factor
+    const sm = SMASH[club];
+    if (cs) {
+      const smash = bs / cs;
+      out.smash = smash;
+      const st = smash >= sm[0] ? 'good' : smash >= sm[2] ? 'warn' : 'bad';
+      let msg = st === 'good' ? '정타율이 좋아요. 스피드를 올리면 그대로 거리로 이어집니다.'
+        : `센터에서 벗어난 타격이 많다는 신호입니다. 지금 스윙 스피드로 스매시 ${sm[0].toFixed(2)}만 나와도 볼 스피드가 약 ${fromMph(cs * sm[0] - bs, u).toFixed(1)} ${unitName(u)} 늘어납니다. 페이스에 풋파우더나 임팩트 스티커를 붙여 타점부터 확인하세요.`;
+      if (smash > sm[1] + 0.03) msg = '스매시가 비정상적으로 높아요. 클럽 스피드 측정값이 낮게 잡혔을 수 있으니 측정 환경을 확인하세요.';
+      add('smash', '스매시 팩터', smash.toFixed(2), `${sm[0].toFixed(2)}–${sm[1].toFixed(2)}`, st, msg);
+      out.potentialBs = cs * sm[0];
+    }
+
+    // launch & spin
+    const opt = optimal(club, cs || (club === 'driver' ? 95 : 80));
+    let lr = null, sr = null;
+    if (inp.launch != null && inp.launch !== '') {
+      lr = rng(+inp.launch, opt.launch);
+      add('launch', '발사각', (+inp.launch).toFixed(1) + '°', `${opt.launch[0]}–${opt.launch[1]}°`, lr === 'ok' ? 'good' : Math.abs(+inp.launch - (lr === 'low' ? opt.launch[0] : opt.launch[1])) > 3 ? 'bad' : 'warn', null);
+    }
+    if (inp.spin != null && inp.spin !== '') {
+      sr = rng(+inp.spin, opt.spin);
+      const off = sr === 'ok' ? 0 : Math.abs(+inp.spin - (sr === 'low' ? opt.spin[0] : opt.spin[1]));
+      add('spin', '백스핀', Math.round(+inp.spin) + ' rpm', `${opt.spin[0]}–${opt.spin[1]} rpm`, sr === 'ok' ? 'good' : off > (club === 'driver' ? 600 : 1500) ? 'bad' : 'warn', null);
+    }
+    const ls = (club === 'driver' || club === 'wood') ? {
+      'low|high': '낮게 뜨고 스핀이 많아요. 공을 내려치는(다운블로) 드라이버 스윙의 전형입니다. 볼을 앞발 뒤꿈치 쪽으로, 티를 조금 높게, 어드레스에서 척추를 타깃 반대쪽으로 더 기울이고 임팩트 때 머리를 공 뒤에 두세요.',
+      'low|ok': '발사각이 낮아요. 로프트가 세워져 맞거나 공격각이 내려가 있습니다. 티 높이와 볼 위치를 앞으로, 머리를 공 뒤에 두는 것부터 확인하세요.',
+      'low|low': '낮게 뜨고 스핀도 적어 공이 일찍 떨어집니다. 페이스 위쪽보다 아래쪽에 맞거나 로프트가 부족할 수 있어요. 티를 높이고, 개선이 없으면 로프트를 1–1.5° 올리는 것을 고려하세요.',
+      'ok|high': '스핀이 많아 거리 손해가 있어요. 깎여 맞는 아웃-인 궤도나 페이스 아래쪽 타점이 흔한 원인입니다.',
+      'high|high': '높이 뜨고 스핀도 많아 바람에 약하고 런이 없어요. 손목을 풀어 퍼올리거나 페이스가 열린 채 맞는 경우가 많습니다. 임팩트 때 체중을 앞발로 옮기는 연습을 하세요.',
+      'high|ok': '발사각이 다소 높아요. 스핀이 적당하다면 큰 문제는 아니지만, 퍼올리는 동작이 없는지 확인하세요.',
+      'high|low': '높게 뜨고 스핀이 적은, 이상적인 “하이 런치 로우 스핀”에 가깝습니다. 다만 스핀이 너무 적으면 탄도가 불안정할 수 있어요.',
+      'ok|low': '스핀이 적어 런은 많지만 탄도가 불안정할 수 있어요. 페이스 위쪽 타점일 가능성이 있습니다.'
+    } : {
+      'low|high': '낮게 나가는데 스핀이 많아요. 너무 가파르게 내려치거나 아웃-인 궤도로 깎여 맞을 때 나옵니다.',
+      'low|ok': '발사각이 낮아요. 핸드 퍼스트는 좋지만 과하면 로프트가 너무 세워집니다. 볼 위치가 너무 뒤에 있지 않은지 확인하세요.',
+      'low|low': '낮고 스핀이 적은 얇은 타격(탑성)입니다. 최저점이 공 뒤에 있거나 상체가 일어나는 동작을 점검하세요.',
+      'ok|high': '스핀이 많은 편이에요. 그린에서는 유리하지만 거리 손해가 있을 수 있어요.',
+      'high|high': '높게 뜨고 스핀이 많아요. 로프트가 열린 채 맞거나 공 아래로 파고드는 경우입니다.',
+      'high|ok': '발사각이 높아요. 임팩트 때 손목이 풀려 로프트가 늘어나는(스쿠핑) 경우가 많습니다. 체중을 앞발로, 손이 공보다 앞에 오도록 하세요.',
+      'high|low': '높게 뜨는데 스핀이 적어요. 손목을 풀어 퍼올리며 페이스 위쪽에 맞는 전형적인 플립 동작입니다. 그린에서 공이 서지 않아요.',
+      'ok|low': '스핀이 적어요. 페이스 위쪽 타점이거나 클린하게 걷어 치는 경우입니다. 다운블로를 조금 더 만드세요.'
+    };
+    if (lr && sr && !(lr === 'ok' && sr === 'ok')) out.notes.push(ls[lr + '|' + sr]);
+    else if (lr && sr) out.notes.push('발사각과 스핀이 모두 이 클럽·스피드의 최적 범위 안에 있어요.');
+
+    // direction & curvature → face / path estimate
+    const hasDir = inp.dir != null && inp.dir !== '';
+    let axis = null;
+    if (inp.axis != null && inp.axis !== '') axis = +inp.axis;
+    else if (inp.side != null && inp.side !== '' && inp.spin) axis = Math.atan2(+inp.side, +inp.spin) * 180 / Math.PI;
+    if (hasDir || axis != null) {
+      const d = hasDir ? +inp.dir * mirror : 0, a = axis != null ? axis * mirror : 0;
+      const face = hasDir ? d * FACE_SHARE[club] : null;
+      const ftp = axis != null ? a / AXIS_PER_FTP[club] : null;
+      const path = face != null && ftp != null ? face - ftp : null;
+      const start = !hasDir ? '' : d < -2 ? '풀' : d > 2 ? '푸시' : '';
+      const curve = axis == null ? '' : a > 10 ? '슬라이스' : a > 3 ? '페이드' : a < -10 ? '훅' : a < -3 ? '드로우' : '';
+      let name = (start + (start && curve ? ' ' : '') + curve) || '스트레이트';
+      if (start === '풀' && !curve) name = '풀 (왼쪽 직선)';
+      if (start === '푸시' && !curve) name = '푸시 (오른쪽 직선)';
+      if (mirror === -1) name = name.replace('왼쪽', '오른쪽 ').replace('오른쪽 직선', '왼쪽 직선');
+      out.flight = { name, face, ftp, path, d, a };
+      let msg;
+      const mild = Math.abs(a) <= 8 && (path == null || Math.abs(path) <= 5) && Math.abs(d) <= 4;
+      if (mild && Math.abs(a) > 3) msg = `${curve}는 충분히 제어 가능한 구질이에요. 매번 같은 방향으로 휘어진다면 고칠 필요 없이 에임만 맞추세요. 방향이 섞여 나온다면 그때 페이스 컨트롤을 점검합니다.`;
+      else if (path != null && path < -3) msg = `클럽 궤도가 약 ${Math.abs(path).toFixed(0)}° 아웃-인으로 추정됩니다. 영상 분석의 “오버 더 톱”, “임팩트 때 머리 쏠림”과 같은 원인일 가능성이 큽니다. 전환에서 하체를 먼저 쓰고 뒷팔꿈치를 옆구리로 떨어뜨리는 드릴을 하세요.`;
+      else if (path != null && path > 5) msg = `클럽 궤도가 약 ${path.toFixed(0)}° 인-아웃으로 추정됩니다. 다운스윙에서 클럽이 몸 뒤로 처지는(스턱) 경우이니, 몸통 회전을 멈추지 말고 손을 몸 앞에 두세요.`;
+      else if (ftp != null && ftp > 3) msg = '궤도에 비해 페이스가 열려 맞고 있어요. 그립을 조금 더 스트롱하게(왼손 너클 2–3개 보이게) 잡고, 임팩트 지나 팔뚝이 자연스럽게 돌아가도록 릴리스하세요.';
+      else if (ftp != null && ftp < -3) msg = '궤도에 비해 페이스가 닫혀 맞고 있어요. 그립이 너무 스트롱하지 않은지, 임팩트 때 손목을 급하게 덮지 않는지 확인하세요.';
+      else msg = '페이스와 궤도의 관계가 안정적이에요. 방향 차이는 정렬(에임) 문제일 수 있으니 셋업 때 클럽으로 타깃 라인을 확인하세요.';
+      add('flight', '구질 추정', name, '스트레이트 ~ 약한 드로우/페이드', (path != null && Math.abs(path) > 5) || Math.abs(a) > 10 ? 'bad' : mild ? 'good' : 'warn', msg);
+    }
+
+    // carry potential
+    out.carryNow = bs * CARRY_PER_MPH[club];
+    if (out.potentialBs && out.potentialBs > bs) out.carryPot = out.potentialBs * CARRY_PER_MPH[club];
+    out.tour = inp.sex ? TOUR[inp.sex === 'F' ? 'F' : 'M'][club] : null;
+    out.tourRef = TOUR_REF[club];
+    out.csMph = cs; out.bsMph = bs;
+    return out;
+  }
+
+  function shaftFlex(driverMph) {
+    if (!driverMph) return null;
+    if (driverMph < 72) return 'L (레이디)';
+    if (driverMph < 82) return 'A (시니어)';
+    if (driverMph < 95) return 'R (레귤러)';
+    if (driverMph < 105) return 'S (스티프)';
+    return 'X (엑스트라 스티프)';
+  }
+
+  return { analyze, toMph, fromMph, unitName, shaftFlex, TOUR, optimal };
+})();
+if (typeof module !== 'undefined') module.exports = LM;
+
+</script>
+<script type="module">
+// ===== Coaching knowledge base =====
+// key: metricId:dir. side words filled by hand: {lead}, {trail}
+const COACH = {
+  'tempo:fast': { title: '백스윙이 급해요', why: '백스윙이 빨라지면 탑에서 전환할 여유가 없어 팔과 손으로 먼저 내려치게 되고, 궤도와 타이밍이 흔들립니다.', fix: '투어 선수 평균은 백스윙:다운스윙 약 3:1입니다. 테이크어웨이를 천천히 시작하고 탑에서 몸이 다 감길 때까지 기다리세요.', drill: '“하나-둘-셋”에 탑, “넷”에 임팩트가 오도록 구령에 맞춰 하프스윙 10회 → 풀스윙 10회.', phase: 'top' },
+  'tempo:slow': { title: '다운스윙 전환이 느슨해요', why: '탑에서 멈칫하거나 다운스윙 속도가 붙지 않으면 클럽 스피드와 비거리가 손해를 봅니다.', fix: '백스윙은 지금 리듬을 유지하고, 전환에서 하체부터 가속하세요. 임팩트를 지나 피니시까지 끝까지 휘두르는 것이 핵심입니다.', drill: '클럽을 거꾸로 잡고 “휙” 소리가 임팩트 지점 이후에 나도록 빈 스윙 10회.', phase: 'impact' },
+  'stance:narrow': { title: '스탠스가 좁아요', why: '하체 지지 면이 좁으면 회전할 때 균형을 잃기 쉽고, 골반이 옆으로 밀리는 스웨이가 생기기 쉽습니다.', fix: '미들 아이언 기준으로 양발 안쪽 간격을 어깨너비 정도로, 드라이버는 그보다 반 발 정도 넓게 서세요.', drill: '클럽 두 개를 어깨너비로 바닥에 평행하게 놓고 그 사이에 발을 맞춰 셋업하는 연습.', phase: 'address' },
+  'stance:wide': { title: '스탠스가 너무 넓어요', why: '발이 너무 넓으면 골반 회전이 막혀 팔로만 치게 되고, 체중을 {lead}발로 옮기기 어려워집니다.', fix: '양발 바깥쪽이 어깨너비를 살짝 넘는 정도로 좁히세요. 웨지·숏아이언은 더 좁게 섭니다.', drill: '피니시에서 {trail}발 끝으로만 서서 3초 버티기. 넓은 스탠스로는 이 자세가 안 나옵니다.', phase: 'address' },
+  'tilt:low': { title: '어드레스에서 어깨가 수평이에요', why: '{trail}손이 그립에서 아래에 있으므로 {trail}어깨가 살짝 낮아야 자연스럽습니다. 어깨가 수평이거나 {lead}어깨가 낮으면 상체가 타깃 쪽으로 기울어 아웃-인 궤도(슬라이스)가 나오기 쉽습니다.', fix: '공을 {lead}가슴 앞에 두고, 상체를 타깃 반대쪽으로 아주 살짝(5–10°) 기울이세요.', drill: '셋업 때 {trail}손으로 {trail}허벅지 바깥을 한 번 쓸어내린 다음 그립하기.', phase: 'address' },
+  'tilt:high': { title: '어깨가 과하게 기울어 있어요', why: '{trail}어깨가 너무 낮으면 체중이 {trail}발에 남아 공을 띄우려는 동작(스쿠핑)과 뒤땅이 생기기 쉽습니다.', fix: '양 어깨 기울기를 5–10° 정도로 줄이고 체중을 양발에 50:50으로 두세요.', drill: '거울 앞에서 클럽을 양 어깨에 가로로 대고 기울기를 확인하며 셋업.', phase: 'address' },
+  'headSway:sway': { title: '백스윙에서 머리가 옆으로 밀려요', why: '몸을 “회전”하지 않고 옆으로 “이동”하는 스웨이입니다. 다운스윙에서 제자리로 돌아오지 못하면 뒤땅·탑볼이 번갈아 나옵니다.', fix: '머리는 공 한 개 폭 이내로만 움직이게 두고, {trail}무릎 각도를 유지한 채 가슴을 {trail}발 위로 돌리세요.', drill: '벽에 {trail}쪽 머리를 가볍게 대고(또는 머리 위치에 막대 세우고) 머리가 밀지 않도록 하프스윙 15회.', phase: 'top' },
+  'headSway:reverse': { title: '리버스 피벗 (백스윙에서 머리가 타깃 쪽으로)', why: '백스윙에서 체중이 {lead}발에 남은 상태입니다. 다운스윙에서는 반대로 체중이 뒤로 빠져 힘 손실과 슬라이스가 생깁니다.', fix: '백스윙에서 {trail}엉덩이를 뒤쪽으로 돌리고, 탑에서 가슴이 {trail}발 위에 오도록 하세요.', drill: '스텝 드릴: 발을 모으고 백스윙하면서 {lead}발을 타깃 쪽으로 내딛은 뒤 다운스윙.', phase: 'top' },
+  'hipSway:sway': { title: '백스윙에서 골반이 밀려요 (힙 스웨이)', why: '골반이 {trail}발 바깥으로 밀리면 꼬임(X-factor)이 사라지고, 다운스윙에서 골반을 다시 끌고 와야 해 타이밍이 늦어집니다.', fix: '{trail}무릎의 굽힘을 유지하고 {trail}엉덩이를 “옆”이 아니라 “뒤”로 돌리세요. 체중은 {trail}발 안쪽에 느껴져야 합니다.', drill: '{trail}발 바깥에 얼라인먼트 스틱(또는 우산)을 세우고 백스윙 때 골반이 닿지 않게 연습.', phase: 'top' },
+  'hipSway:reverse': { title: '백스윙에서 골반이 타깃 쪽으로 기울어요', why: '골반이 타깃 쪽으로 밀리면 리버스 피벗과 같은 체중 배분이 되어 임팩트 때 오히려 뒤로 빠집니다.', fix: '백스윙에서 골반 중심은 제자리에서 회전시키고, 체중은 {trail}발 안쪽으로 살짝 옮기세요.', drill: '{trail}발에 체중 60%를 느끼며 하프스윙 → 탑에서 잠깐 멈춰 체중 위치 확인.', phase: 'top' },
+  'shift:back': { title: '임팩트에서 체중이 뒤에 남아요', why: '골반이 타깃 쪽으로 이동하지 못하면 손목이 일찍 풀리며(캐스팅) 뒤땅, 높고 약한 탄도가 나옵니다.', fix: '다운스윙 첫 동작을 {lead}골반이 타깃 쪽으로 살짝 이동하는 것으로 시작하세요. 임팩트 때 체중 70–80%가 {lead}발에 있어야 합니다.', drill: '{trail}발을 뒤로 빼서 발끝만 땅에 대고 치기(체중이 {lead}발에 강제됨) 10구.', phase: 'impact' },
+  'shift:over': { title: '임팩트 때 골반이 과하게 밀려요', why: '골반이 너무 많이 미끄러지면 상체가 뒤로 젖혀지고 푸시·훅이 나오기 쉽습니다.', fix: '골반은 살짝 이동한 뒤 바로 “회전”으로 전환하세요. {lead}다리가 벽처럼 버텨줘야 합니다.', drill: '{lead}발 바깥에 스틱을 세우고 임팩트에서 골반이 닿지 않게 회전.', phase: 'impact' },
+  'headImp:lunge': { title: '임팩트 때 머리가 타깃 쪽으로 쏠려요', why: '상체가 공을 덮치면 클럽이 바깥에서 들어와 깎여 맞고(슬라이스·풀), 탄도가 낮아집니다.', fix: '임팩트까지 머리는 공 뒤에 두고, 하체가 먼저 리드하게 하세요. 머리는 “제자리 또는 살짝 뒤”가 정답입니다.', drill: '공 {trail}쪽 15cm 지점에 티를 꽂고, 임팩트 순간까지 그 티를 보면서 치기.', phase: 'impact' },
+  'headImp:back': { title: '임팩트 때 머리가 많이 뒤에 있어요', why: '머리가 지나치게 뒤에 남으면 체중도 함께 남아 스쿠핑과 뒤땅이 생깁니다.', fix: '머리는 어드레스 위치를 기준으로 유지하되, 몸통 회전과 함께 체중이 {lead}발로 이동하도록 하세요.', drill: '피니시에서 머리가 {lead}무릎 위에 오는지 확인하며 하프스윙.', phase: 'impact' },
+  'leadArm:bent': { title: '탑에서 {lead}팔이 많이 굽어요', why: '스윙 아크가 작아져 비거리가 줄고, 다운스윙에서 팔을 펴는 타이밍에 의존하게 됩니다. (정면 2D 측정이라 참고용입니다)', fix: '백스윙 크기를 조금 줄이더라도 {lead}팔의 폭을 유지하세요. 오버스윙보다 넓은 아크가 더 멀리 갑니다.', drill: '{lead}팔 한 손으로만 클럽을 짧게 잡고 하프스윙 10회 — 팔이 굽지 않는 범위를 몸에 익히기.', phase: 'top' },
+  'finish:back': { title: '피니시에서 체중이 {lead}발로 넘어오지 않아요', why: '피니시 자세는 스윙 전체의 결과입니다. 체중이 뒤에 남으면 임팩트 때 이미 뒤로 빠졌다는 신호입니다.', fix: '피니시에서 벨트 버클이 타깃을 향하고, {trail}발은 발끝만 땅에 닿게 하세요.', drill: '모든 샷마다 피니시 자세로 3초 버티기. 버티지 못하면 체중 이동이 부족한 것입니다.', phase: 'finish' },
+  'spine:upright': { title: '어드레스가 너무 서 있어요', why: '상체가 서 있으면 스윙 플레인이 가팔라지고, 회전 대신 팔로 들어 올리게 됩니다.', fix: '허리가 아니라 고관절에서 접는다는 느낌으로 엉덩이를 뒤로 빼며 숙이세요. 팔은 어깨 아래로 자연스럽게 늘어뜨립니다.', drill: '클럽을 등에 세로로 대고 머리·등·꼬리뼈 세 점이 붙은 채로 고관절에서 숙이기.', phase: 'address' },
+  'spine:bent': { title: '상체가 너무 숙여져 있어요', why: '과하게 숙이면 회전 공간이 줄고, 다운스윙에서 상체가 일어나며 보상 동작이 생깁니다.', fix: '공에서 반 발짝 떨어지고 가슴을 살짝 세우세요. 척추 각도는 수직에서 35–45°가 적당합니다.', drill: '거울 측면에서 셋업을 찍어 척추선 각도를 확인한 뒤 같은 느낌으로 10회 셋업 반복.', phase: 'address' },
+  'knee:straight': { title: '무릎이 거의 펴져 있어요', why: '무릎이 펴지면 하체가 굳어 회전이 막히고, 체중이 발뒤꿈치로 쏠립니다.', fix: '무릎을 살짝(15–25°) 굽혀 체중을 발 앞꿈치 쪽 중앙에 두세요.', drill: '셋업 후 제자리에서 발뒤꿈치를 살짝 들었다 내리기 — 그때의 무릎 굽힘이 기준입니다.', phase: 'address' },
+  'knee:squat': { title: '무릎을 너무 많이 굽혔어요', why: '앉은 자세가 되면 상체 숙임이 부족해지고, 회전 때 상하 움직임이 커집니다.', fix: '무릎은 살짝만 굽히고 대신 고관절에서 더 숙이세요.', drill: '똑바로 선 상태에서 고관절 숙임 → 마지막에 무릎만 살짝 풀기 순서로 셋업.', phase: 'address' },
+  'reach:far': { title: '손이 몸에서 너무 멀어요', why: '공에 손을 뻗으면 체중이 발 앞으로 쏠리고 다운스윙에서 몸이 공 쪽으로 따라 나가 생크·토핑이 생깁니다.', fix: '팔은 어깨에서 수직으로 떨어뜨리고, 그립 끝과 허벅지 사이를 주먹 하나~하나 반 정도로 두세요.', drill: '셋업 후 클럽에서 손을 떼고 팔을 늘어뜨렸을 때 손 위치에 그립이 오는지 확인.', phase: 'address' },
+  'reach:close': { title: '손이 몸에 너무 붙어 있어요', why: '공에 너무 가까우면 팔이 지나갈 공간이 없어 다운스윙에서 몸이 일어나며 공간을 만듭니다.', fix: '반 발짝 뒤로 물러서서 그립 끝과 몸 사이에 주먹 하나 공간을 만드세요.', drill: '그립 끝과 허벅지 사이에 주먹을 넣어 간격을 확인하고 셋업.', phase: 'address' },
+  'ee:forward': { title: '얼리 익스텐션 (임팩트 때 골반이 공 쪽으로 나와요)', why: '다운스윙에서 엉덩이가 공 쪽으로 밀려 나오면 팔이 지나갈 길이 막혀 생크·푸시·훅이 나오고, 상체가 일어납니다. 아마추어에게 가장 흔한 문제 중 하나입니다.', fix: '임팩트까지 엉덩이가 어드레스 때의 “뒤 라인”에 붙어 있다는 느낌으로 회전하세요. {lead}엉덩이가 뒤로 빠지며 돌아야 합니다.', drill: '엉덩이를 벽(또는 의자 등받이)에 살짝 댄 채 셋업하고, 다운스윙에서 {lead}엉덩이가 벽에 닿은 채로 회전하는 연습 15회.', phase: 'impact' },
+  'spineLoss:rise': { title: '임팩트 때 상체가 일어나요', why: '척추 각도가 펴지면 클럽 최저점이 올라가 탑볼·얇은 샷이 나오고, 얼리 익스텐션과 함께 나타나는 경우가 많습니다.', fix: '임팩트에서 가슴이 공을 내려다보는 각도를 유지하고, 회전은 골반과 가슴으로 하세요.', drill: '머리 위에 막대(또는 동반자 손)를 대고 임팩트까지 머리가 올라가지 않도록 하프스윙.', phase: 'impact' },
+  'spineLoss:dive': { title: '임팩트 때 상체가 더 숙여져요', why: '다운스윙에서 몸이 공 쪽으로 주저앉으면 뒤땅과 클럽 페이스 오픈이 생깁니다.', fix: '하체가 지면을 밀어 올리는 힘을 쓰면서 척추 각도를 어드레스와 같게 유지하세요.', drill: '임팩트 자세로 멈춰서 척추선을 확인하는 “스톱 앳 임팩트” 드릴.', phase: 'impact' },
+  'headH:rise': { title: '임팩트 때 머리가 올라가요', why: '머리 높이가 올라가면 상체가 일어난다는 뜻이고, 탑볼·얇은 샷이 나오기 쉽습니다.', fix: '임팩트 이후까지 머리 높이를 유지하고 공이 있던 자리를 끝까지 보세요.', drill: '머리 높이에 표시를 하고(동반자 손이나 벽 테이프) 임팩트까지 높이 유지하며 하프스윙.', phase: 'impact' },
+  'headH:dip': { title: '임팩트 때 머리가 내려가요', why: '머리가 떨어지면 몸이 주저앉아 뒤땅이 나고 회전 속도가 줄어듭니다.', fix: '다운스윙에서 지면을 밀어내며 무릎 높이를 유지하세요.', drill: '머리 높이 기준선을 두고 하프스윙에서 머리가 내려가지 않게 반복.', phase: 'impact' },
+  'path:ott': { title: '오버 더 톱 (다운스윙이 바깥에서 들어와요)', why: '다운스윙에서 손과 클럽이 백스윙보다 바깥(공 쪽)으로 나오면 아웃-인 궤도가 되어 슬라이스와 풀 샷이 납니다. 상체·어깨로 먼저 내려칠 때 생깁니다.', fix: '전환은 하체부터. {trail}팔꿈치를 옆구리 쪽으로 떨어뜨리며 손이 백스윙보다 살짝 안쪽 경로로 내려오게 하세요.', drill: '공 바깥 뒤쪽(공에서 타깃 반대·몸 반대쪽)에 헤드커버를 두고 치지 않고 스윙하기 / 스텝 드릴.', phase: 'top' },
+  'path:inside': { title: '다운스윙이 너무 안쪽에서 들어와요 (스턱)', why: '클럽이 몸 뒤로 처지면 인-아웃이 과해져 푸시나 훅이 나옵니다.', fix: '다운스윙에서 몸통 회전을 멈추지 말고, 손을 몸 앞에 두는 느낌을 유지하세요.', drill: '{trail}손 하나로만 하프스윙 — 클럽이 몸 뒤로 떨어지지 않고 몸 앞에서 움직이는 감각 익히기.', phase: 'top' },
+  'planeTop:steep': { title: '탑이 숄더 플레인 위로 올라가요 (가파른 백스윙)', why: '탑 위치가 가파르면 다운스윙이 위에서 내려찍는 궤도가 되어 디봇이 깊고 슬라이스가 나기 쉽습니다.', fix: '테이크어웨이에서 손을 들어 올리지 말고 몸통 회전으로 클럽을 낮고 넓게 빼세요.', drill: '테이크어웨이 때 클럽 헤드가 손보다 바깥에 머물도록 허리 높이까지 천천히 10회.', phase: 'top' },
+  'planeTop:flat': { title: '탑이 너무 낮아요 (플랫한 백스윙)', why: '탑이 지나치게 낮으면 클럽이 몸 뒤로 감겨 다운스윙에서 바깥으로 던지거나 너무 안쪽에서 들어옵니다.', fix: '팔을 조금 더 위로 들어 올려 손이 {trail}어깨 위쪽에 오도록 하세요.', drill: '탑에서 멈춰 손이 {trail}어깨와 머리 사이에 오는지 거울로 확인.', phase: 'top' },
+  'planeDown:ott': { title: '다운스윙에서 손이 숄더 플레인 위로 나와요', why: '숄더 플레인(공–어깨 연결선)보다 위로 나오면 전형적인 오버 더 톱입니다. 슬라이스의 가장 큰 원인입니다.', fix: '전환에서 손을 “아래로” 먼저 떨어뜨리고, 그다음 몸통을 회전하세요.', drill: '숄더 플레인 선을 따라 막대를 기울여 세워두고(또는 영상의 선 참고) 다운스윙에서 손이 그 아래로 지나가게 반복.', phase: 'top' }
+};
+COACH['ballPos:fwd'] = { title: '볼이 너무 앞(타깃 쪽)에 있어요', why: '볼이 앞에 있으면 최저점을 지난 뒤에 맞아 탑볼이 나거나, 어깨가 열려 당겨 치는 풀·슬라이스가 나기 쉽습니다.', fix: '{club} 기준 볼 위치는 <b>{ballTxt}</b>입니다. 볼을 그만큼 뒤로 옮기세요.', drill: '바닥에 클럽 두 개로 T자를 만들어(타깃라인 + 볼 위치선) 셋업할 때마다 볼 위치 확인.', phase: 'address' };
+COACH['ballPos:back'] = { title: '볼이 너무 뒤(뒷발 쪽)에 있어요', why: '볼이 뒤에 있으면 내려찍는 각도가 과해져 낮은 탄도·푸시가 나고, {club}처럼 긴 클럽일수록 손해가 큽니다.', fix: '{club} 기준 볼 위치는 <b>{ballTxt}</b>입니다. 볼을 그만큼 앞으로 옮기세요.', drill: '바닥에 클럽 두 개로 T자를 만들어(타깃라인 + 볼 위치선) 셋업할 때마다 볼 위치 확인.', phase: 'address' };
+const CLUB_TIPS = {
+  driver: ['볼은 앞발 뒤꿈치 안쪽, 티는 볼 절반이 헤드 위로 올라오게 꽂으세요.', '척추를 타깃 반대쪽으로 더 기울여 뒷어깨가 확실히 낮아야 올려치는(어퍼블로) 각도가 나옵니다.', '임팩트 때 머리는 공 뒤에 남겨두세요. 아이언처럼 앞으로 덮치면 슬라이스와 낮은 탄도가 나옵니다.', '스탠스는 가장 넓게, 손은 몸에서 조금 더 멀리, 스윙 플레인은 가장 완만한 것이 정상입니다.'],
+  wood: ['쓸어치는 클럽입니다. 최저점이 볼 바로 아래에 오도록, 디봇은 없거나 아주 얕게.', '볼은 드라이버보다 1–2개 안쪽에 둡니다.', '띄우려고 퍼올리지 말고 로프트를 믿으세요. 임팩트 때 체중은 앞발로 넘어가야 합니다.'],
+  long: ['아이언이지만 내려치는 각도는 얕게. 볼은 중앙보다 1–2개 앞.', '멀리 보내려고 크게 휘두르다 템포가 빨라지기 쉬워요. 미들 아이언과 같은 리듬을 유지하세요.', '롱 아이언이 일관되지 않다면 하이브리드로 바꾸는 것도 좋은 선택입니다.'],
+  mid: ['모든 스윙의 기준이 되는 클럽입니다. 볼은 중앙~1개 앞, 셋업 체중은 50:50.', '임팩트 때 손이 볼보다 타깃 쪽에 있는 핸드 퍼스트가 되어야 합니다.', '디봇은 볼이 있던 자리보다 타깃 쪽에서 시작해야 정상입니다.'],
+  short: ['볼은 스탠스 중앙, 스탠스는 조금 좁게. 내려치는 각도가 더 가팔라집니다.', '거리보다 방향이 중요한 클럽입니다. 풀스윙의 80–90% 크기로 리듬 있게 치세요.', '임팩트 때 체중이 앞발에 확실히 실려야 스핀이 걸립니다.'],
+  wedge: ['스탠스는 좁게, 셋업부터 체중을 앞발에 약 60% 두고 끝까지 유지하세요. 볼은 중앙 또는 약간 뒤.', '하체 움직임은 줄이고 몸통 회전으로 칩니다.', '거리는 백스윙 크기로 조절하세요 (예: 왼팔이 9시·10시·11시).', '임팩트 때 손목을 풀어 퍼올리는 동작을 가장 조심하세요.']
+};
+const CLUB_NOTES = {
+  driver: { headImp: '드라이버는 특히 머리가 볼 뒤에 남아야 올려치는 각도가 만들어집니다.', shift: '드라이버는 아이언보다 골반 이동이 작아도 괜찮지만 뒤에 남으면 안 됩니다.', tilt: '드라이버는 어깨 기울기가 가장 큰 클럽입니다.', spine: '드라이버는 가장 서 있는 자세가 정상입니다.', reach: '드라이버는 샤프트가 길어 손이 몸에서 조금 더 떨어지는 것이 정상입니다.', stance: '드라이버는 가장 넓은 스탠스가 기본입니다.' },
+  wood: { headImp: '우드도 머리를 볼 뒤에 두고 쓸어치세요.' },
+  long: {},
+  mid: {},
+  short: { shift: '숏 아이언은 임팩트 때 체중이 앞발에 더 확실히 실려야 합니다.' },
+  wedge: { shift: '웨지는 셋업부터 체중을 앞발에 두고 스윙 내내 유지하세요.', stance: '웨지는 좁은 스탠스가 기본입니다.', headSway: '웨지 스윙에서는 머리와 골반 이동이 거의 없어야 합니다.', hipSway: '웨지 스윙에서는 머리와 골반 이동이 거의 없어야 합니다.' }
+};
+const PRAISE = {
+  tempo: '템포 리듬이 좋아요', stance: '스탠스 폭이 적당해요', tilt: '어드레스 어깨 기울기 좋음', headSway: '백스윙 머리 안정',
+  hipSway: '골반이 밀리지 않고 회전', shift: '임팩트 체중 이동 좋음', headImp: '임팩트 때 머리가 공 뒤에 유지', leadArm: '탑에서 앞팔 폭 유지',
+  finish: '피니시 밸런스 좋음', ballPos: '볼 위치 적당', spine: '어드레스 척추 각도 좋음', knee: '무릎 굽힘 적당', reach: '공과의 거리 적당', ee: '골반 라인 유지 (얼리 익스텐션 없음)',
+  spineLoss: '척추 각도 유지', headH: '머리 높이 유지', path: '다운스윙 궤도 좋음', planeTop: '탑 위치가 플레인 근처', planeDown: '다운스윙이 플레인 아래로 진입'
+};
+const PH_LABEL = { address: '어드레스', top: '탑', impact: '임팩트', finish: '피니시' };
+
+// ===== Golfer profiles =====
+const PROF_KEY = 'swingtracer.profiles.v1';
+let PROFILES = [{ name: '나', height: 190, sex: 'M', speed: '' }, { name: '아내', height: 167, sex: 'F', speed: '' }];
+let PI = 0;
+try { const sv = JSON.parse(localStorage.getItem(PROF_KEY) || 'null'); if (sv && Array.isArray(sv.list) && sv.list.length) { PROFILES = sv.list; PI = Math.min(sv.i || 0, PROFILES.length - 1); } } catch (e) {}
+const saveProfiles = () => { try { localStorage.setItem(PROF_KEY, JSON.stringify({ list: PROFILES, i: PI })); } catch (e) {} };
+const prof = () => PROFILES[PI];
+
+function clubLengthAdvice(p) {
+  const h = +p.height;
+  if (!h) return null;
+  if (p.sex === 'F') {
+    if (h < 157) return '여성용 표준보다 0.5인치 짧은 길이';
+    if (h < 171) return '여성용 표준 길이';
+    if (h < 178) return '여성용 표준 +0.5인치 (또는 남성용 표준에 가벼운 샤프트)';
+    return '남성용 표준 길이에 가벼운 샤프트';
+  }
+  if (h < 168) return '남성용 표준보다 0.5인치 짧은 길이';
+  if (h < 183) return '남성용 표준 길이';
+  if (h < 188) return '남성용 표준 +0.5인치';
+  if (h < 195) return '남성용 표준 +0.5–1인치';
+  return '남성용 표준 +1–1.5인치';
+}
+function bodyTipsList(p) {
+  const h = +p.height, tips = [];
+  const len = clubLengthAdvice(p);
+  if (len) tips.push(`<b>클럽 길이</b>: 키 ${h}cm면 보통 <b>${len}</b>가 맞습니다. 키보다 손목–바닥 거리가 더 정확하니 피팅 때 함께 재보세요.`);
+  if (h >= 185) {
+    tips.push('<b>무릎보다 고관절</b>: 키가 크면 클럽이 짧게 느껴져 무릎을 많이 굽혀 내려가거나 등을 둥글게 말기 쉬워요. 무릎은 살짝(15–30°)만, 부족한 높이는 엉덩이를 뒤로 빼는 고관절 숙임으로 만드세요. 이 프로필에서는 무릎 굽힘 기준을 15–30°로 좁혀서 봅니다.');
+    tips.push('<b>라이각</b>: 표준 클럽을 그대로 쓰면 토우가 들려 공이 왼쪽으로 가기 쉬워요. 1–2° 업라이트 피팅을 고려하세요 (라이 보드 테스트로 확인).');
+    tips.push('<b>스윙 플레인</b>: 키 큰 골퍼는 플레인이 조금 가파른(업라이트) 것이 자연스러워요. 앱에서도 탑 위치 기준을 그만큼 넓게 봅니다.');
+    tips.push('<b>큰 아크 관리</b>: 긴 팔은 스피드에 유리하지만 백스윙이 커지기 쉬워요. 앞팔 폭을 유지한 채 3/4 크기에서 멈추는 감각을 익히면 정타율이 좋아집니다.');
+  } else if (h && h < 165) {
+    tips.push('<b>스윙 플레인</b>: 키가 작은 편이면 플레인이 조금 완만(플랫)한 것이 자연스러워요. 앱에서도 탑 위치 기준을 그만큼 넓게 봅니다.');
+    tips.push('<b>클럽이 길게 느껴질 때</b>: 그립을 0.5–1인치 내려 잡거나 짧은 샤프트를 쓰면 상체를 세우고 서는 자세를 막을 수 있어요.');
+  } else if (h) {
+    tips.push('<b>셋업</b>: 고관절에서 숙이고 팔이 어깨 아래로 자연스럽게 떨어지는 위치가 기준입니다. 무릎 굽힘은 15–35°.');
+  }
+  if (p.sex === 'F') {
+    tips.push('<b>회전과 유연성</b>: 고관절·어깨 유연성이 좋은 골퍼는 회전 크기에서 유리해요. 대신 회전이 과해 오버스윙이 되기 쉬우니 탑에서 앞팔 폭이 유지되는 지점까지만 돌리세요.');
+    tips.push('<b>장비가 템포를 좌우</b>: 스윙 스피드에 비해 무거운 클럽은 템포를 무너뜨려요. 수치 비교는 LPGA 투어 평균을 기준으로 보여드립니다.');
+  } else {
+    tips.push('<b>비교 기준</b>: 시뮬레이터 수치는 PGA 투어 평균과 비교해 드립니다. 다만 아마추어에게는 스매시 팩터와 발사각·스핀 최적화가 스피드보다 먼저입니다.');
+  }
+  const fl = LM.shaftFlex(+p.speed);
+  if (fl) tips.push(`<b>샤프트</b>: 드라이버 클럽스피드 ${p.speed}mph면 보통 <b>${fl}</b> 플렉스가 맞습니다.`);
+  return tips;
+}
+const BODY_NOTES = {
+  tall: { 'knee:squat': '키가 큰 골퍼에게 흔한 보상 동작입니다. 클럽 길이가 짧지 않은지도 점검하세요.', 'spine:bent': '키에 비해 클럽이 짧으면 이렇게 숙이게 됩니다. 클럽 길이(+0.5–1인치)를 먼저 확인하세요.', 'reach:close': '클럽이 짧으면 공에 가까이 서게 됩니다. 클럽 길이를 확인하세요.', 'planeTop:steep': '키 큰 골퍼는 원래 약간 업라이트하므로, 이 경고가 떴다면 꽤 가파른 편입니다.' },
+  short: { 'planeTop:flat': '키가 작은 골퍼는 원래 약간 플랫하므로, 이 경고가 떴다면 꽤 낮은 편입니다.', 'spine:upright': '클럽이 길게 느껴지면 상체를 세우게 됩니다. 그립을 조금 내려 잡아 보세요.' }
+};
+function renderProfile() {
+  const tabs = $('#profTabs'); tabs.innerHTML = '';
+  PROFILES.forEach((p, i) => {
+    const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', i === PI); b.textContent = `${p.name || '골퍼'} · ${p.height || '?'}cm`;
+    b.onclick = () => { PI = i; saveProfiles(); renderProfile(); runAnalysis(); runLM(true); };
+    tabs.appendChild(b);
+  });
+  const p = prof();
+  $('#pName').value = p.name; $('#pHeight').value = p.height; $('#pSex').value = p.sex; $('#pSpeed').value = p.speed || '';
+  renderBodyTips();
+}
+function renderBodyTips() { $('#bodyTips').innerHTML = `<ul class="tips">${bodyTipsList(prof()).map(x => `<li>${x}</li>`).join('')}</ul>`; }
+function onProfileInput() {
+  const p = prof();
+  p.name = $('#pName').value.trim(); p.height = +$('#pHeight').value || ''; p.sex = $('#pSex').value; p.speed = $('#pSpeed').value;
+  saveProfiles();
+  const t = $('#profTabs').children[PI]; if (t) t.textContent = `${p.name || '골퍼'} · ${p.height || '?'}cm`;
+  renderBodyTips();
+}
+
+// ===== State =====
+const $ = s => document.querySelector(s);
+const cv = $('#cv'), ctx = cv.getContext('2d'), vid = $('#vid');
+const S = { mode: 'demo', W: 720, H: 1280, fps: 30, P: null, res: null, dur: 0, t: 0, playing: false, rate: 0.5,
+  layers: { trace: true, skel: true, guide: true }, ball: null, picking: false, landmarker: null, scale: 1, lastTs: 0 };
+
+function sideWords(hand) { return hand === 'L' ? { lead: '오른', trail: '왼' } : { lead: '왼', trail: '오른' }; }
+function fill(str, hand) { const w = sideWords(hand); const c = SW.CLUBS[(S.res && S.res.club) || 'mid']; return str.replace(/\{lead\}/g, w.lead).replace(/\{trail\}/g, w.trail).replace(/\{club\}/g, c.name).replace(/\{ballTxt\}/g, c.ballTxt); }
+
+// ===== Canvas setup =====
+function setupCanvas(W, H) {
+  S.W = W; S.H = H;
+  S.scale = Math.min(1, 1080 / Math.max(W, H));
+  cv.width = Math.round(W * S.scale); cv.height = Math.round(H * S.scale);
+}
+const frameAt = t => Math.max(0, Math.min(S.P.length - 1, Math.round(t * S.fps)));
+
+const COL = { back: '#5AB4FF', down: '#FF8A3D', fol: '#E9E2C8', skel: '#FFFFFF', joint: '#F2D27A', guide: '#F2D27A', plane: '#FF5FA2' };
+
+function drawDemoBg() {
+  const g = ctx.createLinearGradient(0, 0, 0, S.H);
+  g.addColorStop(0, '#1C2E36'); g.addColorStop(0.62, '#22392F'); g.addColorStop(1, '#2F5A3B');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, S.W, S.H);
+  ctx.fillStyle = '#3B6E46'; ctx.fillRect(0, S.H * 0.9, S.W, S.H * 0.1);
+  ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(S.W * 0.53, S.H * 0.893, 9, 0, 7); ctx.fill();
+}
+
+function render() {
+  ctx.setTransform(S.scale, 0, 0, S.scale, 0, 0);
+  ctx.clearRect(0, 0, S.W, S.H);
+  if (S.mode === 'video') { try { ctx.drawImage(vid, 0, 0, S.W, S.H); } catch (e) {} }
+  else drawDemoBg();
+  if (!S.P) return;
+  const f = frameAt(S.t), lw = Math.max(S.W, S.H) / 260;
+  if (S.res && S.res.ok && S.layers.guide) drawGuides(lw);
+  if (S.res && S.res.ok && S.layers.trace) drawTrace(f, lw);
+  if (S.layers.skel) drawSkeleton(S.P[f], lw);
+  if (S.ball) {
+    ctx.fillStyle = COL.plane; ctx.strokeStyle = '#fff'; ctx.lineWidth = lw * 0.5;
+    ctx.beginPath(); ctx.arc(S.ball.x, S.ball.y, lw * 2.2, 0, 7); ctx.fill(); ctx.stroke();
+  }
+  $('#tc').textContent = S.t.toFixed(2) + 's  ·  #' + f;
+  $('#scrub').value = S.dur ? S.t / S.dur : 0;
+}
+
+function line(a, b) { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+
+function drawSkeleton(p, lw) {
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = lw * 1.6;
+  for (const [a, b] of SW.BONES) line(p[a], p[b]);
+  ctx.strokeStyle = COL.skel; ctx.lineWidth = lw * 0.9;
+  for (const [a, b] of SW.BONES) line(p[a], p[b]);
+  ctx.fillStyle = COL.joint;
+  for (const i of [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]) { ctx.beginPath(); ctx.arc(p[i].x, p[i].y, lw * 1.1, 0, 7); ctx.fill(); }
+  const h = SW.head(p), r = SW.dist(p[11], p[12]) * 0.0 + SW.dist(SW.shC(p), SW.hipC(p)) * 0.17;
+  ctx.strokeStyle = COL.skel; ctx.lineWidth = lw * 0.9; ctx.beginPath(); ctx.arc(h.x, h.y, r, 0, 7); ctx.stroke();
+}
+
+function drawTrace(f, lw) {
+  const ph = S.res.phases, P = S.P;
+  const seg = (from, to, color, alpha) => {
+    if (to <= from) return;
+    ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.lineWidth = lw * 1.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let k = from; k <= to; k++) { const h = SW.hands(P[k]); k === from ? ctx.moveTo(h.x, h.y) : ctx.lineTo(h.x, h.y); }
+    ctx.stroke(); ctx.globalAlpha = 1;
+  };
+  const a = ph.address, tp = ph.top, im = ph.impact, fi = ph.finish;
+  // ghost of full path
+  seg(a, tp, COL.back, 0.22); seg(tp, im, COL.down, 0.22); seg(im, fi, COL.fol, 0.22);
+  seg(a, Math.min(f, tp), COL.back, 1);
+  if (f > tp) seg(tp, Math.min(f, im), COL.down, 1);
+  if (f > im) seg(im, Math.min(f, fi), COL.fol, 1);
+  for (const [k, c] of [[tp, COL.back], [im, COL.down]]) {
+    if (f < k) continue;
+    const h = SW.hands(P[k]); ctx.fillStyle = c; ctx.strokeStyle = '#000'; ctx.lineWidth = lw * 0.4;
+    ctx.beginPath(); ctx.arc(h.x, h.y, lw * 1.8, 0, 7); ctx.fill(); ctx.stroke();
+  }
+  const h = SW.hands(P[f]); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(h.x, h.y, lw * 1.4, 0, 7); ctx.fill();
+}
+
+function drawGuides(lw) {
+  const r = S.res, A = S.P[r.phases.address];
+  ctx.setLineDash([lw * 3, lw * 2.4]); ctx.strokeStyle = COL.guide; ctx.lineWidth = lw * 0.6; ctx.globalAlpha = 0.85;
+  const vline = x => line({ x, y: 0 }, { x, y: S.H });
+  const head = SW.head(A), hc = SW.hipC(A), sc = SW.shC(A), T = r.T;
+  if (r.view === 'face') {
+    // head box & hip lines at address
+    const hr = T * 0.2;
+    ctx.strokeRect(head.x - hr, head.y - hr * 1.2, hr * 2, hr * 2.4);
+    vline(A[23].x); vline(A[24].x);
+  } else {
+    // spine line & rear (butt) line & head circle
+    const dx = sc.x - hc.x, dy = sc.y - hc.y;
+    line({ x: hc.x - dx * 0.4, y: hc.y - dy * 0.4 }, { x: sc.x + dx * 0.6, y: sc.y + dy * 0.6 });
+    vline(hc.x - r.b * T * 0.22);
+    ctx.beginPath(); ctx.arc(head.x, head.y, T * 0.24, 0, 7); ctx.stroke();
+    if (S.ball) {
+      ctx.setLineDash([]); ctx.strokeStyle = COL.plane; ctx.lineWidth = lw * 0.8;
+      const ext = (p, q, k) => ({ x: p.x + (q.x - p.x) * k, y: p.y + (q.y - p.y) * k });
+      line(S.ball, ext(S.ball, sc, 1.5));
+      const hd = SW.hands(A); ctx.globalAlpha = 0.6; line(S.ball, ext(S.ball, hd, 2.2));
+    }
+  }
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+}
+
+// ===== Playback =====
+function tick(ts) {
+  if (!S.playing) return;
+  if (S.mode === 'video') {
+    S.t = vid.currentTime;
+    if (vid.ended || S.t >= S.dur - 0.01) { stop(); }
+  } else {
+    const dt = S.lastTs ? (ts - S.lastTs) / 1000 : 0; S.lastTs = ts;
+    S.t += dt * S.rate;
+    if (S.t >= S.dur) { S.t = S.dur; stop(); }
+  }
+  render();
+  if (S.playing) requestAnimationFrame(tick);
+}
+function play() {
+  if (!S.P) return;
+  if (S.t >= S.dur - 0.02) seek(0);
+  S.playing = true; S.lastTs = 0; $('#playBtn').textContent = '❚❚ 정지';
+  if (S.mode === 'video') { vid.playbackRate = S.rate; vid.play().catch(() => {}); }
+  requestAnimationFrame(tick);
+}
+function stop() { S.playing = false; $('#playBtn').textContent = '▶ 재생'; if (S.mode === 'video') vid.pause(); }
+function seekVideo(t) {
+  return new Promise(res => {
+    let done = false;
+    const fin = () => { if (done) return; done = true; vid.removeEventListener('seeked', fin); res(); };
+    vid.addEventListener('seeked', fin);
+    vid.currentTime = Math.min(Math.max(0, t), Math.max(0, vid.duration - 0.001));
+    setTimeout(fin, 1500);
+  });
+}
+async function seek(t) {
+  S.t = Math.max(0, Math.min(S.dur, t));
+  if (S.mode === 'video') { await seekVideo(S.t); }
+  render();
+}
+function jumpPhase(k) { stop(); if (S.res && S.res.ok) seek(S.res.phases[k] / S.fps); }
+
+// ===== Report =====
+function renderMarks() {
+  const m = $('#marks'); m.innerHTML = '';
+  if (!S.res || !S.res.ok) return;
+  for (const k of ['address', 'top', 'impact', 'finish']) {
+    const b = document.createElement('button'); b.type = 'button';
+    b.textContent = PH_LABEL[k]; b.style.left = (S.res.phases[k] / S.fps / S.dur * 100) + '%';
+    b.onclick = () => jumpPhase(k); m.appendChild(b);
+  }
+}
+
+function keyframeCanvas(k) {
+  const c = document.createElement('canvas');
+  const f = S.res.phases[k];
+  const p = S.P[f];
+  // crop around the body
+  let xs = [], ys = [];
+  for (const i of SW.IDX) { xs.push(p[i].x); ys.push(p[i].y); }
+  const hds = SW.hands(p); xs.push(hds.x); ys.push(hds.y);
+  const T = S.res.T;
+  let x0 = Math.min(...xs) - T * 0.5, x1 = Math.max(...xs) + T * 0.5, y0 = Math.min(...ys) - T * 0.5, y1 = Math.max(...ys) + T * 0.3;
+  const cw = 240, ch = 320, ar = cw / ch;
+  let w = x1 - x0, h = y1 - y0;
+  if (w / h > ar) { const nh = w / ar; y0 -= (nh - h) / 2; h = nh; } else { const nw = h * ar; x0 -= (nw - w) / 2; w = nw; }
+  c.width = cw; c.height = ch;
+  return { c, crop: { x0, y0, w, h }, f };
+}
+function paintKey(kc) {
+  const g = kc.c.getContext('2d'), { x0, y0, w, h } = kc.crop, s = kc.c.width / w;
+  g.setTransform(s, 0, 0, s, -x0 * s, -y0 * s);
+  if (S.mode === 'video') { try { g.drawImage(vid, 0, 0, S.W, S.H); } catch (e) {} }
+  else { g.fillStyle = '#1F3530'; g.fillRect(x0, y0, w, h); }
+  const lw = w / 110, p = S.P[kc.f];
+  g.lineCap = 'round'; g.strokeStyle = '#fff'; g.lineWidth = lw;
+  for (const [a, b] of SW.BONES) { g.beginPath(); g.moveTo(p[a].x, p[a].y); g.lineTo(p[b].x, p[b].y); g.stroke(); }
+  const ph = S.res.phases;
+  const path = (from, to, col) => { if (to <= from) return; g.strokeStyle = col; g.lineWidth = lw * 1.3; g.beginPath(); for (let k = from; k <= to; k++) { const q = SW.hands(S.P[k]); k === from ? g.moveTo(q.x, q.y) : g.lineTo(q.x, q.y); } g.stroke(); };
+  path(ph.address, Math.min(kc.f, ph.top), COL.back);
+  if (kc.f > ph.top) path(ph.top, Math.min(kc.f, ph.impact), COL.down);
+  if (kc.f > ph.impact) path(ph.impact, kc.f, COL.fol);
+}
+
+function bodyNote(m) {
+  const h = +prof().height; const k = m.id + ':' + m.dir;
+  if (h >= 185) return BODY_NOTES.tall[k] || null;
+  if (h && h < 165) return BODY_NOTES.short[k] || null;
+  return null;
+}
+async function renderReport() {
+  const R = $('#report'), r = S.res;
+  if (!r) { R.innerHTML = ''; return; }
+  if (!r.ok) {
+    R.innerHTML = `<div class="panel"><p class="eyebrow">분석 결과</p><h2>스윙을 인식하지 못했어요</h2><p class="summary">${r.reason}</p></div>`;
+    return;
+  }
+  const w = sideWords(r.hand);
+  const issues = r.metrics.filter(m => m.status !== 'good').sort((a, b) => (a.status === 'bad' ? 0 : 1) - (b.status === 'bad' ? 0 : 1));
+  const goods = r.metrics.filter(m => m.status === 'good');
+  const sc = r.score, col = sc >= 85 ? 'var(--good)' : sc >= 65 ? 'var(--warn)' : 'var(--bad)';
+  const grade = sc >= 85 ? '좋은 스윙이에요' : sc >= 65 ? '몇 가지만 다듬으면 돼요' : '기본기부터 차근차근 잡아봐요';
+  const topIssue = issues[0] ? fill(COACH[issues[0].id + ':' + issues[0].dir]?.title || issues[0].label, r.hand) : null;
+  const C = 2 * Math.PI * 46;
+  const viewName = r.view === 'face' ? '정면 촬영' : '후방 촬영';
+  let html = `
+  <div class="panel">
+    <p class="eyebrow">스윙 리포트${S.mode === 'demo' ? ' · 예시' : ''}</p>
+    <div class="scorecard">
+      <div class="score" aria-label="스윙 점수 ${sc}점">
+        <svg viewBox="0 0 104 104"><circle cx="52" cy="52" r="46" fill="none" stroke="var(--line)" stroke-width="8"/><circle cx="52" cy="52" r="46" fill="none" stroke="${col}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${C * sc / 100} ${C}"/></svg>
+        <div class="num">${sc}<small>/ 100</small></div>
+      </div>
+      <div style="min-width:0">
+        <h2>${grade}</h2>
+        <p class="summary">${issues.length ? `가장 먼저 고칠 부분은 <b>${topIssue}</b>입니다. 한 번에 하나씩, 위에서부터 순서대로 연습하세요.` : '측정한 항목이 모두 기준 범위 안에 있어요. 지금 리듬을 유지하세요.'}</p>
+        <div class="chips"><span class="chip">${prof().name || '골퍼'} ${prof().height ? prof().height + 'cm' : ''}</span><span class="chip">${r.clubName}</span><span class="chip">${viewName}</span><span class="chip">${r.hand === 'R' ? '오른손' : '왼손'} 골퍼</span><span class="chip">템포 ${r.tempo.ratio.toFixed(1)}:1</span><span class="chip">백스윙 ${r.tempo.back.toFixed(2)}s · 다운스윙 ${r.tempo.down.toFixed(2)}s</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <p class="eyebrow">스윙 시퀀스</p>
+    <div class="keys" id="keys"></div>
+  </div>`;
+  if (issues.length) {
+    html += `<div class="panel"><p class="eyebrow">고칠 점과 교정법 · ${issues.length}개</p>`;
+    for (const m of issues) {
+      const c = COACH[m.id + ':' + m.dir];
+      if (!c) continue;
+      html += `<article class="issue ${m.status}">
+        <div class="head"><h3>${fill(c.title, r.hand)}</h3><span class="sev ${m.status}">${m.status === 'bad' ? '우선 교정' : '주의'}</span></div>
+        <p class="measure">${m.label}: ${m.display} · 기준 ${m.ideal}</p>
+        <dl><dt>왜 문제인가</dt><dd>${fill(c.why, r.hand)}</dd><dt>교정 방법</dt><dd>${fill(c.fix, r.hand)}</dd><dt>추천 드릴</dt><dd>${fill(c.drill, r.hand)}</dd>${CLUB_NOTES[r.club] && CLUB_NOTES[r.club][m.id] ? `<dt>${r.clubName}</dt><dd>${CLUB_NOTES[r.club][m.id]}</dd>` : ''}${bodyNote(m) ? `<dt>체형</dt><dd>${bodyNote(m)}</dd>` : ''}</dl>
+        <button class="btn small jump" type="button" data-phase="${c.phase}">${PH_LABEL[c.phase]} 장면 보기</button>
+      </article>`;
+    }
+    html += `</div>`;
+  }
+  if (goods.length) html += `<div class="panel"><p class="eyebrow">잘 되고 있는 점</p><div class="goods">${goods.map(m => `<span class="chip">${PRAISE[m.id] || m.label}</span>`).join('')}</div></div>`;
+  html += `<div class="panel"><p class="eyebrow">${r.clubName} 체크포인트</p><ul class="tips">${CLUB_TIPS[r.club].map(x => `<li>${x}</li>`).join('')}</ul></div>`;
+  html += `<div class="panel"><p class="eyebrow">측정값 전체</p><div class="tablewrap"><table>
+    <thead><tr><th>항목</th><th>측정</th><th>기준</th></tr></thead><tbody>
+    ${r.metrics.map(m => `<tr><td><span class="dot ${m.status}"></span>${m.label}</td><td class="num">${m.display}</td><td>${m.ideal}</td></tr>`).join('')}
+    </tbody></table></div>
+    <p class="note">%T는 어드레스 때 몸통 길이(어깨 중심–골반 중심) 대비 비율입니다. 카메라 거리와 상관없이 비교할 수 있도록 정규화했어요. 2D 영상 기반 추정치이므로 촬영 각도가 비스듬하면 오차가 커집니다.${!S.ball ? (r.view === 'dtl' ? ' “공 위치 찍기”로 공을 표시하면 스윙 플레인 진단이 추가됩니다.' : ' “공 위치 찍기”로 공을 표시하면 클럽별 볼 위치 진단이 추가됩니다.') : ''}</p></div>`;
+  R.innerHTML = html;
+  R.querySelectorAll('.jump').forEach(b => b.onclick = () => { jumpPhase(b.dataset.phase); $('#stage').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); });
+
+  // key frames
+  const keys = $('#keys');
+  const was = S.t;
+  for (const k of ['address', 'top', 'impact', 'finish']) {
+    const kc = keyframeCanvas(k);
+    const btn = document.createElement('button'); btn.className = 'key'; btn.type = 'button';
+    btn.appendChild(kc.c);
+    const sp = document.createElement('span'); sp.innerHTML = `${PH_LABEL[k]} <em>${(kc.f / S.fps).toFixed(2)}s</em>`; btn.appendChild(sp);
+    btn.onclick = () => jumpPhase(k);
+    keys.appendChild(btn);
+    if (S.mode === 'video') await seekVideo(kc.f / S.fps);
+    paintKey(kc);
+  }
+  if (S.mode === 'video') await seek(was);
+}
+
+function runAnalysis() {
+  if (!S.P) return;
+  S.res = SW.analyze(S.P, S.fps, { view: $('#viewSel').value, hand: $('#handSel').value, ball: S.ball, club: $('#clubSel').value, body: { height: +prof().height || 0, sex: prof().sex } });
+  $('#ballBtn').hidden = !S.res.ok;
+  if (!S.picking) $('#ballBtn').textContent = S.ball ? '공 위치 다시 찍기' : (S.res.ok && S.res.view === 'dtl' ? '공 위치 찍기 (스윙 플레인)' : '공 위치 찍기 (볼 포지션)');
+  renderMarks(); renderReport(); render(); runLM(true);
+}
+
+// ===== Demo =====
+function loadDemo() {
+  stop();
+  const d = makeDemoSwing();
+  S.mode = 'demo'; S.fps = d.fps; S.dur = d.duration; S.ball = null;
+  setupCanvas(d.W, d.H);
+  S.P = SW.clean(d.raw, d.W, d.H);
+  $('#demoBadge').hidden = false; $('#errBox').hidden = true;
+  runAnalysis();
+  seek(S.res.ok ? S.res.phases.top / S.fps : 0);
+}
+
+// ===== Pose model =====
+async function loadLandmarker() {
+  if (S.landmarker) return S.landmarker;
+  showOverlay('포즈 모델을 불러오는 중', 0, '처음 한 번만 받아요 (약 30MB)');
+  let vision;
+  try { vision = await import(new URL('./vision_bundle.mjs', location.href).href); }
+  catch (e) { vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs'); }
+  let fileset;
+  try { fileset = await vision.FilesetResolver.forVisionTasks(new URL('./wasm', location.href).href); }
+  catch (e) { fileset = await vision.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'); }
+  const buf = new Uint8Array(await (await fetch(new URL('./pose_landmarker_full.task', location.href).href)).arrayBuffer());
+  const make = delegate => vision.PoseLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetBuffer: buf, delegate }, runningMode: 'VIDEO', numPoses: 1,
+    minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5
+  });
+  try { S.landmarker = await make('GPU'); } catch (e) { S.landmarker = await make('CPU'); }
+  return S.landmarker;
+}
+function showOverlay(text, frac, sub) { $('#overlay').hidden = false; $('#ovText').textContent = text; $('#ovBar').style.width = (frac * 100) + '%'; $('#ovSub').textContent = sub || ''; }
+function hideOverlay() { $('#overlay').hidden = true; }
+function showErr(msg) { const e = $('#errBox'); e.textContent = msg; e.hidden = false; }
+
+let tsBase = 0;
+async function processVideo(file) {
+  stop(); $('#errBox').hidden = true;
+  const url = URL.createObjectURL(file);
+  vid.src = url;
+  await new Promise((res, rej) => { vid.onloadeddata = res; vid.onerror = () => rej(new Error('이 영상 형식은 브라우저에서 열 수 없어요. MP4(H.264)나 MOV로 다시 저장해 주세요.')); });
+  S.mode = 'video'; S.ball = null; S.res = null; S.P = null;
+  $('#demoBadge').hidden = true;
+  setupCanvas(vid.videoWidth, vid.videoHeight);
+  await seekVideo(0); render(); renderReport(); renderMarks();
+  const maxDur = 20;
+  S.dur = Math.min(vid.duration, maxDur);
+  S.fps = +$('#fpsSel').value;
+  const lm = await loadLandmarker();
+  const n = Math.floor(S.dur * S.fps) + 1, raw = [];
+  let found = 0;
+  for (let f = 0; f < n; f++) {
+    await seekVideo(f / S.fps);
+    tsBase += 34;
+    let r = null;
+    try { r = lm.detectForVideo(vid, tsBase); } catch (e) { r = null; }
+    const pose = r && r.landmarks && r.landmarks[0];
+    raw.push(pose ? pose.map(p => ({ x: p.x, y: p.y, visibility: p.visibility })) : null);
+    if (pose) found++;
+    if (f % 2 === 0) {
+      S.t = f / S.fps;
+      ctx.setTransform(S.scale, 0, 0, S.scale, 0, 0); ctx.drawImage(vid, 0, 0, S.W, S.H);
+      showOverlay('스윙을 추적하는 중', (f + 1) / n, `${f + 1} / ${n} 프레임`);
+    }
+  }
+  hideOverlay();
+  if (found < n * 0.4) throw new Error('사람을 충분히 인식하지 못했어요. 몸 전체가 보이도록, 밝은 곳에서 촬영한 영상을 사용해 주세요.');
+  S.P = SW.clean(raw, S.W, S.H);
+  runAnalysis();
+  if (vid.duration > maxDur) showErr(`영상이 길어서 앞의 ${maxDur}초만 분석했어요. 스윙 한 번만 잘라서 올리면 더 정확합니다.`);
+  await seek(S.res.ok ? S.res.phases.top / S.fps : 0);
+}
+
+// ===== Wire UI =====
+$('#file').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { await processVideo(f); }
+  catch (err) { hideOverlay(); showErr(err.message || '영상을 분석하지 못했어요. 다른 영상으로 다시 시도해 주세요.'); console.error(err); }
+  e.target.value = '';
+});
+$('#demoBtn').onclick = loadDemo;
+$('#playBtn').onclick = () => S.playing ? stop() : play();
+$('#prevBtn').onclick = () => { stop(); seek(S.t - 1 / S.fps); };
+$('#nextBtn').onclick = () => { stop(); seek(S.t + 1 / S.fps); };
+$('#rate').onchange = e => { S.rate = +e.target.value; if (S.mode === 'video') vid.playbackRate = S.rate; };
+$('#scrub').addEventListener('input', e => { stop(); seek(+e.target.value * S.dur); });
+const toggle = (id, key) => $(id).onclick = e => { S.layers[key] = !S.layers[key]; e.currentTarget.classList.toggle('on', S.layers[key]); e.currentTarget.setAttribute('aria-pressed', S.layers[key]); render(); };
+toggle('#tTrace', 'trace'); toggle('#tSkel', 'skel'); toggle('#tGuide', 'guide');
+$('#viewSel').onchange = runAnalysis; $('#clubSel').onchange = runAnalysis; $('#handSel').onchange = runAnalysis;
+$('#ballBtn').onclick = () => {
+  S.picking = !S.picking; cv.classList.toggle('picking', S.picking);
+  if (S.picking) $('#ballBtn').textContent = '화면에서 공을 탭하세요'; else runAnalysis();
+  if (S.picking && S.res && S.res.ok) jumpPhase('address');
+};
+cv.addEventListener('click', e => {
+  if (!S.picking) return;
+  const rect = cv.getBoundingClientRect();
+  S.ball = { x: (e.clientX - rect.left) / rect.width * S.W, y: (e.clientY - rect.top) / rect.height * S.H };
+  S.picking = false; cv.classList.remove('picking');
+  runAnalysis();
+});
+document.addEventListener('keydown', e => {
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+  if (e.key === ' ') { e.preventDefault(); S.playing ? stop() : play(); }
+  if (e.key === 'ArrowLeft') { stop(); seek(S.t - 1 / S.fps); }
+  if (e.key === 'ArrowRight') { stop(); seek(S.t + 1 / S.fps); }
+});
+
+// ===== Simulator numbers =====
+const LMK = 'swingtracer.lmunit.v1';
+try { const u = localStorage.getItem(LMK); if (u) $('#lmUnit').value = u; } catch (e) {}
+let lmShown = false;
+function flightSvg(f) {
+  if (!f) return '';
+  const d = Math.max(-12, Math.min(12, f.d)) * 2.2, a = Math.max(-25, Math.min(25, f.a));
+  const x0 = 60, y0 = 140, y1 = 14;
+  const xs = x0 + Math.tan(d * Math.PI / 180) * (y0 - y1);
+  const x1 = xs + a * 1.6;
+  const cx = x0 + (xs - x0) * 0.6, cy = y0 - (y0 - y1) * 0.6;
+  return `<svg viewBox="0 0 120 150" role="img" aria-label="구질 그림: ${f.name}">
+    <line x1="60" y1="140" x2="60" y2="8" stroke="var(--line)" stroke-width="2" stroke-dasharray="4 4"/>
+    <circle cx="60" cy="8" r="4" fill="var(--flag)"/>
+    <path d="M ${x0} ${y0} Q ${cx} ${cy} ${x1.toFixed(1)} ${y1}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="${x1.toFixed(1)}" cy="${y1}" r="4" fill="var(--accent)"/><circle cx="60" cy="140" r="4" fill="var(--ink)"/>
+  </svg>`;
+}
+function videoLinks(o) {
+  const r = S.res, links = [];
+  if (!r || !r.ok) return links;
+  const bad = id => r.metrics.find(m => m.id === id && m.status !== 'good');
+  if (o.flight && o.flight.path != null && o.flight.path < -3) {
+    if (bad('path')) links.push('수치의 아웃-인 궤도와 영상의 “오버 더 톱”이 같은 문제를 가리킵니다. 영상 리포트의 오버 더 톱 드릴을 최우선으로 하세요.');
+    else if (bad('headImp')) links.push('수치의 아웃-인 궤도는 영상에서 보인 “임팩트 때 머리 쏠림”과 연결될 가능성이 큽니다.');
+  }
+  if (o.club === 'driver' && o.items.find(i => i.id === 'launch' && i.status !== 'good') && +$('#lmLaunch').value < 12) {
+    if (bad('tilt')) links.push('낮은 드라이버 발사각은 영상에서 보인 어드레스 어깨 기울기 부족과 연결됩니다.');
+    if (bad('headImp')) links.push('낮은 드라이버 발사각은 임팩트 때 머리가 앞으로 나가는 동작과 연결됩니다.');
+  }
+  if (o.smash && o.items.find(i => i.id === 'smash' && i.status !== 'good') && (bad('ee') || bad('headSway') || bad('hipSway')))
+    links.push('낮은 스매시(타점 불안정)는 영상에서 보인 몸의 위치 변화(스웨이·얼리 익스텐션)가 원인일 수 있어요. 몸이 제자리에서 회전해야 타점이 모입니다.');
+  if (['launch', 'spin'].some(id => o.items.find(i => i.id === id && i.status !== 'good')) && bad('shift') && o.club !== 'driver')
+    links.push('아이언 발사각·스핀 문제는 영상의 “임팩트 체중이 뒤에 남음”과 같은 원인(퍼올림)일 가능성이 큽니다.');
+  return links;
+}
+function runLM(silent) {
+  if (silent && !lmShown) return;
+  const u = $('#lmUnit').value, num = id => { const v = $(id).value; return v === '' ? null : +v; };
+  const club = $('#clubSel').value;
+  const o = LM.analyze({ club, unit: u, cs: num('#lmCs'), bs: num('#lmBs'), launch: num('#lmLaunch'), spin: num('#lmSpin'), dir: num('#lmDir'), side: num('#lmSide'), hand: (S.res && S.res.hand) || ($('#handSel').value === 'L' ? 'L' : 'R'), sex: prof().sex });
+  const out = $('#lmOut');
+  if (o.error) { out.innerHTML = `<div class="err">${o.error}</div>`; return; }
+  lmShown = true;
+  const un = LM.unitName(u), f = v => LM.fromMph(v, u).toFixed(1);
+  const yd2m = y => Math.round(y * 0.9144);
+  const tour = o.tour, sexLbl = prof().sex === 'F' ? 'LPGA' : 'PGA';
+  const clubName = SW.CLUBS[club].name;
+  const links = videoLinks(o);
+  out.innerHTML = `<div class="lmres">
+    <div class="lmtop">
+      <div class="kv">
+        ${o.smash ? `<div class="big">${o.smash.toFixed(2)}<small>스매시 팩터</small></div>` : ''}
+        <div class="big">${yd2m(o.carryNow)}m<small>최적 탄도 시 예상 캐리</small></div>
+        ${o.carryPot ? `<div class="big">+${yd2m(o.carryPot - o.carryNow)}m<small>스매시 ${SW.CLUBS[club] && (o.items.find(i => i.id === 'smash').idealTxt.split('–')[0])} 달성 시</small></div>` : ''}
+      </div>
+      <div class="flight">${flightSvg(o.flight)}</div>
+    </div>
+    ${o.items.map(i => `<article class="issue ${i.status === 'good' ? '' : i.status}" style="${i.status === 'good' ? 'border-left-color:var(--good)' : ''}">
+      <div class="head"><h3>${i.label} · ${i.valueTxt}</h3><span class="sev ${i.status}">${i.status === 'good' ? '좋음' : i.status === 'bad' ? '우선 교정' : '주의'}</span></div>
+      <p class="measure">${clubName} 기준 ${i.idealTxt}</p>${i.msg ? `<p style="margin:0">${i.msg}</p>` : ''}</article>`).join('')}
+    ${o.notes.map(n => `<div class="link"><b>발사각 × 스핀</b> · ${n}</div>`).join('')}
+    ${links.map(n => `<div class="link"><b>영상 진단과 연결</b> · ${n}</div>`).join('')}
+    ${tour ? `<div class="tablewrap"><table><thead><tr><th>${sexLbl} 투어 평균 (${o.tourRef})</th><th>클럽 스피드</th><th>볼 스피드</th><th>발사각</th><th>백스핀</th></tr></thead><tbody>
+      <tr><td>투어 평균</td><td class="num">${f(tour[0])}</td><td class="num">${f(tour[1])}</td><td class="num">${tour[2]}°</td><td class="num">${tour[3]}</td></tr>
+      <tr><td>내 수치</td><td class="num">${o.csMph ? f(o.csMph) : '–'}</td><td class="num">${f(o.bsMph)}</td><td class="num">${$('#lmLaunch').value ? $('#lmLaunch').value + '°' : '–'}</td><td class="num">${$('#lmSpin').value || '–'}</td></tr>
+    </tbody></table></div><p class="note" style="margin-top:0">스피드 단위 ${un}. 예상 캐리와 구질의 페이스·궤도 값은 볼 스피드·방향각·스핀축으로 계산한 근사치입니다. 실제 공격각·클럽 패스가 표시되는 장비라면 그 값을 우선하세요.</p>` : ''}
+  </div>`;
+}
+$('#lmForm').addEventListener('submit', e => { e.preventDefault(); runLM(false); });
+$('#lmUnit').addEventListener('change', () => { try { localStorage.setItem(LMK, $('#lmUnit').value); } catch (e) {} runLM(true); });
+$('#lmSample').onclick = () => {
+  const u = $('#lmUnit').value, c = v => +LM.fromMph(v, u).toFixed(1);
+  const ex = $('#clubSel').value === 'driver' ? [95, 131, 10.5, 3300, -2.5, 650] : [78, 102, 15, 7200, 1.5, 900];
+  [['#lmCs', c(ex[0])], ['#lmBs', c(ex[1])], ['#lmLaunch', ex[2]], ['#lmSpin', ex[3]], ['#lmDir', ex[4]], ['#lmSide', ex[5]]].forEach(([id, v]) => $(id).value = v);
+  runLM(false);
+};
+$('#clubSel').addEventListener('change', () => runLM(true));
+['#pName', '#pHeight', '#pSpeed'].forEach(id => $(id).addEventListener('input', onProfileInput));
+['#pHeight', '#pSex'].forEach(id => $(id).addEventListener('change', () => { onProfileInput(); runAnalysis(); runLM(true); }));
+renderProfile();
+
+loadDemo();
+
+</script>
+
+</body>
+</html>
